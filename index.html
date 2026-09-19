@@ -12,10 +12,10 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="bg-slate-100 text-slate-800 font-sans min-h-screen flex flex-col antialiased">
+<body class="bg-slate-950 text-slate-800 font-sans min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
 
   <!-- ================= BANNER DE ALERTA DE SUSCRIPCIÓN (<= 5 DÍAS) ================= -->
-  <div id="banner-alerta-suscripcion" class="hidden bg-amber-500 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-sm transition-all">
+  <div id="banner-alerta-suscripcion" class="hidden bg-amber-500 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-sm transition-all z-40">
     <div class="flex items-center gap-2">
       <i class="fa-solid fa-triangle-exclamation text-base animate-pulse"></i>
       <span id="texto-alerta-suscripcion">Tu suscripción vence pronto. Renueva para evitar la interrupción del servicio.</span>
@@ -25,54 +25,130 @@
     </a>
   </div>
 
-  <!-- ================= PANTALLA 1: LOGIN CENTRAL ================= -->
-  <main id="vista-login" class="flex-1 flex items-center justify-center p-4">
-    <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
-      <div class="text-center mb-6">
-        <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 text-white rounded-2xl shadow-lg mb-3">
-          <i class="fa-solid fa-hotel text-2xl"></i>
+  <!-- ================= PANTALLA 1: LOGIN ESTILO PREMIUM (MOCKUP REFERENCIA) ================= -->
+  <main id="vista-login" class="flex-1 relative flex items-center justify-center overflow-hidden bg-slate-900">
+    
+    <!-- Fondo con imagen de lobby hotelero corporativo y capa de oscuridad elegante -->
+    <div class="absolute inset-0 z-0 bg-cover bg-center opacity-40 scale-105 transform transition-transform duration-1000" style="background-image: url('https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?q=80&w=2070&auto=format&fit=crop');"></div>
+    <div class="absolute inset-0 z-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-slate-950/40"></div>
+
+    <!-- Contenedor general Grid: Izquierda (Copy / Features) | Derecha (Tarjeta Login Flotante) -->
+    <div class="relative z-10 w-full max-w-6xl mx-auto px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
+      
+      <!-- Lado Izquierdo: Mensaje de Impacto y Beneficios -->
+      <div class="lg:col-span-7 text-white space-y-6 hidden lg:block">
+        <div class="inline-block bg-white/10 backdrop-blur-md border border-white/20 px-3 py-1 rounded-full text-xs font-semibold tracking-wider uppercase text-blue-400">
+          Hotelería más simple
         </div>
-        <h1 class="text-2xl font-black text-slate-900 tracking-tight">HospedaYa</h1>
-        <p class="text-xs text-slate-500 mt-1 uppercase tracking-wider font-semibold">Sistema de Gestión Hotelera & POS</p>
+        <h1 class="text-4xl xl:text-5xl font-black tracking-tight leading-tight">
+          Gestiona hoy, <br><span class="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-300">mejores experiencias</span> mañana
+        </h1>
+        <p class="text-slate-300 text-sm max-w-lg leading-relaxed">
+          Reservas, huéspedes, habitaciones, tiendita, control de caja y facturación electrónica SUNAT en un solo lugar.
+        </p>
+
+        <!-- Cuadrícula de características clave -->
+        <div class="grid grid-cols-2 gap-4 pt-4 max-w-lg">
+          <div class="flex items-start gap-3 bg-white/5 backdrop-blur-md border border-white/10 p-3.5 rounded-xl">
+            <div class="w-8 h-8 rounded-lg bg-blue-600/30 text-blue-400 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-calendar-check text-sm"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-white">Reservas</p>
+              <p class="text-[11px] text-slate-400">Control total en tiempo real</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 bg-white/5 backdrop-blur-md border border-white/10 p-3.5 rounded-xl">
+            <div class="w-8 h-8 rounded-lg bg-indigo-600/30 text-indigo-400 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-door-open text-sm"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-white">Habitaciones</p>
+              <p class="text-[11px] text-slate-400">Rack interactivo multiestado</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 bg-white/5 backdrop-blur-md border border-white/10 p-3.5 rounded-xl">
+            <div class="w-8 h-8 rounded-lg bg-emerald-600/30 text-emerald-400 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-users text-sm"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-white">Huéspedes</p>
+              <p class="text-[11px] text-slate-400">Consulta DNI / Reniec</p>
+            </div>
+          </div>
+          <div class="flex items-start gap-3 bg-white/5 backdrop-blur-md border border-white/10 p-3.5 rounded-xl">
+            <div class="w-8 h-8 rounded-lg bg-amber-600/30 text-amber-400 flex items-center justify-center shrink-0">
+              <i class="fa-solid fa-chart-pie text-sm"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-white">Reportes</p>
+              <p class="text-[11px] text-slate-400">Decisiones inteligentes</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-6 pt-4 text-xs font-semibold text-slate-400 uppercase tracking-widest">
+          <span>Confianza</span> • <span>Control</span> • <span>Crecimiento</span>
+        </div>
       </div>
 
-      <form id="form-login" class="space-y-4">
-        <div>
-          <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Correo Electrónico</label>
-          <div class="relative">
-            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-              <i class="fa-solid fa-envelope text-sm"></i>
-            </span>
-            <input type="email" id="login-email" required placeholder="usuario@hotel.com" class="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:outline-none" />
+      <!-- Lado Derecho: Tarjeta de Acceso Flotante (Idéntica al mockup) -->
+      <div class="lg:col-span-5 flex justify-center w-full">
+        <div class="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-md border border-slate-100 relative">
+          
+          <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-500/20 mb-3">
+              <i class="fa-solid fa-hotel text-2xl"></i>
+            </div>
+            <h2 class="text-2xl font-black text-slate-900 tracking-tight">HospedaYa</h2>
+            <p class="text-xs text-slate-500 mt-1 uppercase tracking-wider font-semibold">Sistema de Gestión Hotelera & POS</p>
           </div>
-        </div>
 
-        <div>
-          <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Contraseña</label>
-          <div class="relative">
-            <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-slate-400">
-              <i class="fa-solid fa-lock text-sm"></i>
-            </span>
-            <input type="password" id="login-password" required placeholder="••••••••" class="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-600 focus:outline-none" />
+          <form id="form-login" class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Correo Electrónico</label>
+              <div class="relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
+                  <i class="fa-solid fa-envelope text-sm"></i>
+                </span>
+                <input type="email" id="login-email" required placeholder="usuario@hotel.com" class="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none transition-all font-medium text-slate-800" />
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-600 uppercase mb-1.5">Contraseña</label>
+              <div class="relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
+                  <i class="fa-solid fa-lock text-sm"></i>
+                </span>
+                <input type="password" id="login-password" required placeholder="Ingresa tu contraseña" class="w-full pl-10 pr-10 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:ring-2 focus:ring-blue-600 focus:outline-none transition-all font-medium text-slate-800" />
+              </div>
+            </div>
+
+            <div id="login-error" class="hidden text-xs text-rose-600 bg-rose-50 border border-rose-200 p-3 rounded-xl font-medium text-center"></div>
+
+            <button type="submit" id="btn-submit-login" class="w-full bg-blue-600 hover:bg-blue-700 active:scale-[0.99] text-white font-bold py-3.5 px-4 rounded-xl text-sm shadow-lg shadow-blue-600/30 transition-all flex items-center justify-center gap-2 mt-2">
+              <span>Ingresar al Sistema</span>
+              <i class="fa-solid fa-arrow-right text-xs"></i>
+            </button>
+          </form>
+
+          <div class="mt-8 text-center border-t border-slate-100 pt-4">
+            <p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Hotelería más simple</p>
           </div>
+
         </div>
+      </div>
 
-        <div id="login-error" class="hidden text-xs text-rose-600 bg-rose-50 border border-rose-200 p-2.5 rounded-lg font-medium"></div>
-
-        <button type="submit" id="btn-submit-login" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-lg text-sm shadow transition flex items-center justify-center gap-2">
-          <span>Ingresar al Sistema</span>
-          <i class="fa-solid fa-arrow-right text-xs"></i>
-        </button>
-      </form>
     </div>
   </main>
 
   <!-- ================= PANTALLA 2: CONTENEDOR PRINCIPAL DE LA APLICACIÓN ================= -->
-  <div id="vista-app" class="hidden flex-1 flex flex-col min-h-screen">
+  <div id="vista-app" class="hidden flex-1 flex flex-col min-h-screen bg-slate-100">
     <!-- Barra superior de navegación -->
-    <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-30">
+    <header class="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between sticky top-0 z-30 shadow-xs">
       <div class="flex items-center gap-3">
-        <span class="bg-blue-600 text-white p-2 rounded-lg text-sm font-black">HY</span>
+        <span class="bg-blue-600 text-white p-2.5 rounded-xl text-sm font-black shadow-md shadow-blue-600/20">HY</span>
         <div>
           <h2 id="header-hotel-nombre" class="text-sm font-bold text-slate-900 leading-tight">Hotel Name</h2>
           <p id="header-user-info" class="text-xs text-slate-500">Usuario | Rol</p>
@@ -80,44 +156,44 @@
       </div>
 
       <div class="flex items-center gap-3">
-        <span id="badge-plan" class="bg-blue-50 text-blue-700 text-xs font-bold px-2.5 py-1 rounded-full border border-blue-200 uppercase">Plan Pro</span>
+        <span id="badge-plan" class="bg-blue-50 text-blue-700 text-xs font-bold px-3 py-1 rounded-full border border-blue-200 uppercase tracking-wide">Plan Pro</span>
         <button onclick="AuthManager.logout()" class="text-slate-500 hover:text-rose-600 text-sm font-semibold p-2 rounded-lg transition" title="Cerrar Sesión">
           <i class="fa-solid fa-arrow-right-from-bracket mr-1"></i> Salir
         </button>
       </div>
     </header>
 
-    <!-- Contenedor dinámico donde se cargarán los módulos (Fases 3, 4 y 5) -->
+    <!-- Contenedor dinámico donde se cargarán los módulos -->
     <div id="modulo-contenedor" class="flex-1 p-6 max-w-7xl w-full mx-auto">
-      <!-- Aquí se renderiza el Panel SuperAdmin o el PMS de Recepción -->
+      <!-- Módulos dinámicos -->
     </div>
   </div>
 
   <!-- ================= MODAL PAYWALL (BLOQUEO POR VENCIMIENTO) ================= -->
   <div id="modal-paywall" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-white max-w-md w-full rounded-2xl shadow-2xl p-6 border border-slate-200 text-center">
+    <div class="bg-white max-w-md w-full rounded-3xl shadow-2xl p-8 border border-slate-200 text-center">
       <div class="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
         <i class="fa-solid fa-lock text-2xl"></i>
       </div>
       <h3 class="text-xl font-black text-slate-900">Servicio Suspendido o Vencido</h3>
-      <p class="text-xs text-slate-600 mt-2">
+      <p class="text-xs text-slate-600 mt-2 leading-relaxed">
         El periodo de suscripción de tu hotel ha caducado. Para reactivar el acceso inmediato a recepción y ventas, realiza la renovación correspondiente.
       </p>
 
       <!-- Datos de Pago -->
-      <div class="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3 text-left text-xs space-y-1.5">
+      <div class="mt-4 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left text-xs space-y-2">
         <p class="font-bold text-slate-700 mb-1">Cuentas Habilitadas:</p>
         <p class="text-slate-600"><span class="font-semibold text-purple-700">Yape / Plin:</span> 999-999-999</p>
         <p class="text-slate-600"><span class="font-semibold text-blue-700">BCP Soles:</span> 191-00000000-0-00</p>
         <p class="text-slate-600"><span class="font-semibold text-emerald-700">Interbank:</span> 200-0000000000</p>
       </div>
 
-      <div class="mt-5 flex flex-col gap-2">
-        <a id="btn-reactivar-whatsapp" href="#" target="_blank" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-md">
+      <div class="mt-6 flex flex-col gap-2">
+        <a id="btn-reactivar-whatsapp" href="#" target="_blank" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30">
           <i class="fa-brands fa-whatsapp text-lg"></i>
           <span>Enviar Comprobante por WhatsApp</span>
         </a>
-        <button onclick="AuthManager.logout()" class="text-xs text-slate-500 hover:text-slate-700 font-semibold py-1">
+        <button onclick="AuthManager.logout()" class="text-xs text-slate-500 hover:text-slate-700 font-semibold py-2">
           Cerrar Sesión
         </button>
       </div>
@@ -128,7 +204,6 @@
   <script src="config.js"></script>
   <script src="supabaseClient.js"></script>
   <script>
-    // Lógica inicial de arranque y enrutamiento por estado/rol
     document.addEventListener('DOMContentLoaded', async () => {
       const formLogin = document.getElementById('form-login');
       const loginError = document.getElementById('login-error');
@@ -137,13 +212,11 @@
       const modalPaywall = document.getElementById('modal-paywall');
       const bannerAlerta = document.getElementById('banner-alerta-suscripcion');
 
-      // 1. Verificar si hay sesión activa
       const perfil = await AuthManager.getUsuarioActual();
 
       if (perfil) {
         vistaLogin.classList.add('hidden');
         
-        // Si es SuperAdmin (dueño del SaaS), acceso directo sin paywall
         if (perfil.es_superadmin) {
           vistaApp.classList.remove('hidden');
           document.getElementById('header-hotel-nombre').textContent = "PANEL MAESTRO SAAS";
@@ -152,24 +225,20 @@
           return;
         }
 
-        // Si es usuario de hotel, validar la suscripción
         const estadoSub = AuthManager.verificarSuscripcion(perfil.hoteles);
 
         if (!estadoSub.permitido) {
-          // Disparar Paywall
           modalPaywall.classList.remove('hidden');
           const mensajeWa = encodeURIComponent(`Hola, quiero reactivar mi suscripción para el hotel ${perfil.hoteles.razon_social} (RUC: ${perfil.hoteles.ruc}).`);
           document.getElementById('btn-reactivar-whatsapp').href = `https://wa.me/${CONFIG.WHATSAPP_SOPORTE}?text=${mensajeWa}`;
           return;
         }
 
-        // Suscripción al día: mostrar dashboard
         vistaApp.classList.remove('hidden');
         document.getElementById('header-hotel-nombre').textContent = perfil.hoteles.razon_social;
         document.getElementById('header-user-info').textContent = `${perfil.nombre_completo} | ${perfil.rol.toUpperCase()}`;
         document.getElementById('badge-plan').textContent = `PLAN ${perfil.hoteles.plan.toUpperCase()}`;
 
-        // Toast de aviso si faltan <= 5 días
         if (estadoSub.mostrarAlertaRenovacion) {
           bannerAlerta.classList.remove('hidden');
           const diasTexto = estadoSub.diasRestantes === 0 ? "hoy" : `en ${estadoSub.diasRestantes} día(s)`;
@@ -179,7 +248,6 @@
         }
       }
 
-      // 2. Evento Login
       formLogin.addEventListener('submit', async (e) => {
         e.preventDefault();
         loginError.classList.add('hidden');
