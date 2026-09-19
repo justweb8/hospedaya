@@ -109,14 +109,9 @@ function renderModulo(modulo) {
     case 'habitacion-config': return moduloHabitacionConfig();
     case 'personal':         return moduloPersonal();
     case 'suscripcion':      return moduloMiSuscripcion();
-    // Placeholder Fase 5
-    case 'facturacion':
-    case 'sunat-config':
-      contenido().innerHTML = `
-        <div style="padding:2rem; color:var(--texto-sub); font-size:0.9rem;">
-          Módulo <strong>${escapeHtml(modulo)}</strong> — se implementa en Fase 5 (Facturación SUNAT).
-        </div>`;
-      return;
+    // Facturación SUNAT (Fase 5 · facturacionSunat.js)
+    case 'facturacion':      return moduloFacturacion();
+    case 'sunat-config':     return moduloSunatConfig();
     default:
       contenido().innerHTML = `
         <div style="padding:2rem; color:var(--texto-sub); font-size:0.9rem;">

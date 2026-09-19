@@ -19,6 +19,13 @@
   <!-- Lucide icons -->
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 
+  <!-- QR + PDF para tickets de facturación (Fase 5) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Estilos auxiliares e impresión de tickets 80mm -->
+  <link rel="stylesheet" href="style.css" />
+
   <style>
     /* ── Variables de diseño ─────────────────────────── */
     :root {
@@ -1374,6 +1381,9 @@ document.getElementById('btn-salir').addEventListener('click', async () => {
 
 <!-- app.js — Fases 3 y 4 -->
 <script src="app.js"></script>
+
+<!-- facturacionSunat.js — Fase 5 -->
+<script src="facturacionSunat.js"></script>
 
 </body>
 </html>

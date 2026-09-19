@@ -1,0 +1,57 @@
+/* ============================================================
+   HospedaYa — style.css
+   Estilos auxiliares e impresión de tickets térmicos 80mm
+   ============================================================ */
+
+/* Contenedor del ticket: oculto en pantalla, visible al imprimir */
+#ticket-print {
+  display: none;
+}
+
+/* ── IMPRESIÓN ─────────────────────────────────────────────── */
+@media print {
+  /* Ocultar toda la app cuando se imprime */
+  body.imprimiendo > *:not(#ticket-print) {
+    display: none !important;
+  }
+
+  body.imprimiendo #ticket-print {
+    display: block !important;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 80mm;
+    margin: 0;
+    padding: 0;
+    background: white;
+    color: #000;
+  }
+
+  /* Tamaño de papel: rollo térmico 80mm de ancho, alto automático */
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  html, body {
+    width: 80mm;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: white !important;
+  }
+
+  /* Evitar cortes raros del QR y las líneas */
+  #ticket-print img,
+  #ticket-print canvas,
+  #ticket-print table {
+    page-break-inside: avoid;
+  }
+}
+
+/* El QR generado (qrcodejs) puede venir como <img> o <canvas>:
+   lo centramos dentro de su caja */
+#qr-ticket-box img,
+#qr-ticket-box canvas {
+  margin: 0 auto;
+  display: block;
+}
