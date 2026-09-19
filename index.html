@@ -4,31 +4,34 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>HospedaYa - PMS Multi-Tenant</title>
+  <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Supabase CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- FontAwesome Icons CDN -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body class="bg-white text-slate-800 font-sans min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
+<body class="bg-slate-50 text-slate-800 font-sans min-h-screen flex flex-col antialiased selection:bg-blue-600 selection:text-white">
 
-  <!-- BANNER DE ALERTA -->
+  <!-- ================= BANNER DE ALERTA DE SUSCRIPCIÓN (<= 5 DÍAS) ================= -->
   <div id="banner-alerta-suscripcion" class="hidden bg-amber-500 text-white px-4 py-2.5 shadow-md flex items-center justify-between text-sm transition-all z-40">
     <div class="flex items-center gap-2">
       <i class="fa-solid fa-triangle-exclamation animate-pulse"></i>
-      <span id="texto-alerta-suscripcion">Tu suscripción vence pronto.</span>
+      <span id="texto-alerta-suscripcion">Tu suscripción vence pronto. Renueva para evitar la interrupción del servicio.</span>
     </div>
-    <a id="btn-whatsapp-alerta" href="#" target="_blank" class="bg-white text-amber-700 px-3 py-1 rounded-md font-bold text-xs hover:bg-amber-50 shadow">
-      Renovar ahora
+    <a id="btn-whatsapp-alerta" href="#" target="_blank" class="bg-white text-amber-700 px-3 py-1 rounded-md font-bold text-xs hover:bg-amber-50 transition shadow">
+      <i class="fa-brands fa-whatsapp text-sm mr-1 text-emerald-600"></i> Renovar ahora
     </a>
   </div>
 
-  <!-- PANTALLA 1: LOGIN (AHORA SÍ IGUAL A TU MOCKUP) -->
-  <main id="vista-login" class="flex-1 flex flex-col lg:flex-row min-h-screen">
+  <!-- ================= PANTALLA 1: LOGIN (CORTE LIMPIO) ================= -->
+  <main id="vista-login" class="flex-1 flex flex-col lg:flex-row min-h-screen bg-slate-100">
     
-    <!-- MITAD IZQUIERDA: Textos y Features (Fondo Blanco) -->
-    <div class="w-full lg:w-1/2 bg-white flex flex-col justify-center px-8 lg:px-20 xl:px-32 py-12 relative z-10">
+    <!-- MITAD IZQUIERDA: Textos y Features -->
+    <div class="relative z-20 w-full lg:w-[45%] xl:w-[40%] bg-white flex flex-col justify-center px-8 lg:px-16 xl:px-24 py-12 min-h-screen shadow-[20px_0_40px_rgba(0,0,0,0.08)]">
       <div class="mb-8 flex items-center gap-4 text-xs font-bold tracking-widest text-slate-400 uppercase">
-        <span>Hoteles más simples</span>
+        <span>Hotelería más simple</span>
         <div class="h-px w-12 bg-amber-600"></div>
       </div>
 
@@ -88,15 +91,12 @@
     </div>
 
     <!-- MITAD DERECHA: Imagen de Fondo y Tarjeta de Login -->
-    <div class="w-full lg:w-1/2 relative flex items-center justify-center p-6 lg:p-12 bg-slate-100">
+    <div class="relative z-10 w-full lg:w-[55%] xl:w-[60%] flex items-center justify-center p-6 lg:p-12">
       <!-- Imagen de fondo -->
-      <div class="absolute inset-0 z-0 bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1582719478250-c89cae4dc85b?q=80&w=2070&auto=format&fit=crop');">
-        <!-- Difuminado blanco a la izquierda para mezclarse suavemente con la otra mitad -->
-        <div class="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-white to-transparent hidden lg:block"></div>
-      </div>
-
+      <div class="absolute inset-0 bg-cover bg-center" style="background-image: url('banner.jpg');"></div>
+      
       <!-- Tarjeta Flotante Login -->
-      <div class="relative z-10 w-full max-w-md bg-white rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] p-10 border border-slate-100">
+      <div class="relative z-20 w-full max-w-md bg-white rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.15)] p-10 border border-slate-100">
         <div class="absolute top-6 right-8 text-[10px] font-bold text-amber-600 uppercase tracking-widest">
           Hotelería<br>más simple
         </div>
@@ -116,7 +116,7 @@
               <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-slate-400">
                 <i class="fa-regular fa-envelope text-sm"></i>
               </span>
-              <input type="email" id="login-email" required placeholder="usuario@hotel.com" class="w-full pl-11 pr-4 py-3.5 bg-transparent border border-slate-200 rounded-xl text-sm focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all text-slate-800 placeholder-slate-400" />
+              <input type="email" id="login-email" required placeholder="usuario@hotel.com" class="w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all text-slate-800 placeholder-slate-400" />
             </div>
           </div>
 
@@ -126,10 +126,7 @@
               <span class="absolute inset-y-0 left-0 flex items-center pl-4 text-slate-400">
                 <i class="fa-solid fa-lock text-sm"></i>
               </span>
-              <input type="password" id="login-password" required placeholder="Ingresa tu contraseña" class="w-full pl-11 pr-11 py-3.5 bg-transparent border border-slate-200 rounded-xl text-sm focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all text-slate-800 placeholder-slate-400" />
-              <button type="button" class="absolute inset-y-0 right-0 flex items-center pr-4 text-slate-400 hover:text-slate-600">
-                <i class="fa-regular fa-eye-slash text-sm"></i>
-              </button>
+              <input type="password" id="login-password" required placeholder="Ingresa tu contraseña" class="w-full pl-11 pr-11 py-3.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:bg-white focus:border-blue-600 focus:ring-1 focus:ring-blue-600 outline-none transition-all text-slate-800 placeholder-slate-400" />
             </div>
           </div>
 
@@ -148,38 +145,66 @@
     </div>
   </main>
 
-  <!-- PANTALLA 2: CONTENEDOR APP (Oculto por defecto) -->
-  <div id="vista-app" class="hidden flex-1 flex flex-col min-h-screen bg-slate-50">
-    <!-- Header App -->
-    <header class="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+  <!-- ================= PANTALLA 2: CONTENEDOR PRINCIPAL DE LA APLICACIÓN ================= -->
+  <div id="vista-app" class="hidden flex-1 flex flex-col min-h-screen">
+    <!-- Barra superior de navegación -->
+    <header class="bg-white border-b border-slate-200 px-6 py-3.5 flex items-center justify-between sticky top-0 z-30 shadow-sm">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-md">
-          <i class="fa-solid fa-bed"></i>
+        <div class="w-10 h-10 bg-blue-600 text-white rounded-xl flex items-center justify-center shadow-md shadow-blue-600/20">
+          <i class="fa-solid fa-bed text-lg"></i>
         </div>
         <div>
-          <h2 id="header-hotel-nombre" class="text-sm font-bold text-slate-900 leading-none mb-1">Hotel Name</h2>
-          <p id="header-user-info" class="text-xs text-slate-500 leading-none">Usuario | Rol</p>
+          <h2 id="header-hotel-nombre" class="text-sm font-bold text-slate-900 leading-tight">Hotel Name</h2>
+          <p id="header-user-info" class="text-xs text-slate-500">Usuario | Rol</p>
         </div>
       </div>
+
       <div class="flex items-center gap-4">
-        <span id="badge-plan" class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-3 py-1.5 rounded-full border border-emerald-200 uppercase tracking-wider">Plan</span>
-        <button onclick="AuthManager.logout()" class="text-slate-400 hover:text-rose-600 transition" title="Salir">
+        <span id="badge-plan" class="bg-emerald-50 text-emerald-700 text-[10px] font-bold px-3 py-1 rounded-full border border-emerald-200 uppercase tracking-wide">Plan Pro</span>
+        <button onclick="AuthManager.logout()" class="text-slate-400 hover:text-rose-600 text-sm font-semibold p-2 rounded-lg transition" title="Cerrar Sesión">
           <i class="fa-solid fa-arrow-right-from-bracket text-lg"></i>
         </button>
       </div>
     </header>
-    <div id="modulo-contenedor" class="flex-1 p-6 max-w-7xl w-full mx-auto"></div>
-  </div>
 
-  <!-- MODAL PAYWALL -->
-  <div id="modal-paywall" class="hidden fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <!-- Mismo modal de antes, lo dejo resumido para que lo pruebes -->
-    <div class="bg-white max-w-md w-full rounded-3xl shadow-2xl p-8 text-center">
-      <h3 class="text-xl font-black text-slate-900">Servicio Suspendido</h3>
-      <button onclick="AuthManager.logout()" class="mt-4 text-xs text-slate-500">Cerrar Sesión</button>
+    <!-- Contenedor dinámico donde se cargarán los módulos -->
+    <div id="modulo-contenedor" class="flex-1 p-6 max-w-7xl w-full mx-auto">
+      <!-- Aquí se inyectan las Fases 3, 4 y 5 -->
     </div>
   </div>
 
+  <!-- ================= MODAL PAYWALL (BLOQUEO POR VENCIMIENTO) ================= -->
+  <div id="modal-paywall" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full rounded-3xl shadow-2xl p-8 border border-slate-200 text-center">
+      <div class="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+        <i class="fa-solid fa-lock text-2xl"></i>
+      </div>
+      <h3 class="text-xl font-black text-slate-900">Servicio Suspendido o Vencido</h3>
+      <p class="text-xs text-slate-600 mt-2 leading-relaxed">
+        El periodo de suscripción de tu hotel ha caducado. Para reactivar el acceso inmediato a recepción y ventas, realiza la renovación correspondiente.
+      </p>
+
+      <!-- Datos de Pago -->
+      <div class="mt-4 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-left text-xs space-y-2">
+        <p class="font-bold text-slate-700 mb-1">Cuentas Habilitadas:</p>
+        <p class="text-slate-600"><span class="font-semibold text-purple-700">Yape / Plin:</span> 999-999-999</p>
+        <p class="text-slate-600"><span class="font-semibold text-blue-700">BCP Soles:</span> 191-00000000-0-00</p>
+        <p class="text-slate-600"><span class="font-semibold text-emerald-700">Interbank:</span> 200-0000000000</p>
+      </div>
+
+      <div class="mt-6 flex flex-col gap-2">
+        <a id="btn-reactivar-whatsapp" href="#" target="_blank" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 px-4 rounded-xl text-sm transition flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/30">
+          <i class="fa-brands fa-whatsapp text-lg"></i>
+          <span>Enviar Comprobante por WhatsApp</span>
+        </a>
+        <button onclick="AuthManager.logout()" class="text-xs text-slate-500 hover:text-slate-700 font-semibold py-2">
+          Cerrar Sesión
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts Base -->
   <script src="config.js"></script>
   <script src="supabaseClient.js"></script>
   <script src="app.js"></script>
@@ -189,24 +214,59 @@
       const loginError = document.getElementById('login-error');
       const vistaLogin = document.getElementById('vista-login');
       const vistaApp = document.getElementById('vista-app');
+      const modalPaywall = document.getElementById('modal-paywall');
+      const bannerAlerta = document.getElementById('banner-alerta-suscripcion');
 
       const perfil = await AuthManager.getUsuarioActual();
+
       if (perfil) {
         vistaLogin.classList.add('hidden');
+        
+        if (perfil.es_superadmin) {
+          vistaApp.classList.remove('hidden');
+          document.getElementById('header-hotel-nombre').textContent = "PANEL MAESTRO SAAS";
+          document.getElementById('header-user-info').textContent = `${perfil.nombre_completo} | SuperAdmin`;
+          document.getElementById('badge-plan').textContent = "ROOT";
+          if(typeof App !== 'undefined') App.init(perfil);
+          return;
+        }
+
+        const estadoSub = AuthManager.verificarSuscripcion(perfil.hoteles);
+
+        if (!estadoSub.permitido) {
+          modalPaywall.classList.remove('hidden');
+          const mensajeWa = encodeURIComponent(`Hola, quiero reactivar mi suscripción para el hotel ${perfil.hoteles.razon_social} (RUC: ${perfil.hoteles.ruc}).`);
+          document.getElementById('btn-reactivar-whatsapp').href = `https://wa.me/${CONFIG.WHATSAPP_SOPORTE}?text=${mensajeWa}`;
+          return;
+        }
+
         vistaApp.classList.remove('hidden');
-        document.getElementById('header-hotel-nombre').textContent = perfil.es_superadmin ? "PANEL MAESTRO SAAS" : perfil.hoteles?.razon_social;
-        document.getElementById('header-user-info').textContent = `${perfil.nombre_completo} | ${perfil.es_superadmin ? 'SuperAdmin' : perfil.rol}`;
+        document.getElementById('header-hotel-nombre').textContent = perfil.hoteles.razon_social;
+        document.getElementById('header-user-info').textContent = `${perfil.nombre_completo} | ${perfil.rol.toUpperCase()}`;
+        document.getElementById('badge-plan').textContent = `PLAN ${perfil.hoteles.plan.toUpperCase()}`;
+
+        if (estadoSub.mostrarAlertaRenovacion) {
+          bannerAlerta.classList.remove('hidden');
+          const diasTexto = estadoSub.diasRestantes === 0 ? "hoy" : `en ${estadoSub.diasRestantes} día(s)`;
+          document.getElementById('texto-alerta-suscripcion').textContent = `Atención: La suscripción vence ${diasTexto}. Evita cortes de servicio.`;
+          const mensajeRenovar = encodeURIComponent(`Hola, deseo renovar la suscripción de ${perfil.hoteles.razon_social}.`);
+          document.getElementById('btn-whatsapp-alerta').href = `https://wa.me/${CONFIG.WHATSAPP_SOPORTE}?text=${mensajeRenovar}`;
+        }
+
         if(typeof App !== 'undefined') App.init(perfil);
       }
 
       formLogin.addEventListener('submit', async (e) => {
         e.preventDefault();
         loginError.classList.add('hidden');
+        const email = document.getElementById('login-email').value;
+        const pass = document.getElementById('login-password').value;
+
         try {
-          await AuthManager.login(document.getElementById('login-email').value, document.getElementById('login-password').value);
+          await AuthManager.login(email, pass);
           window.location.reload();
         } catch (err) {
-          loginError.textContent = "Credenciales incorrectas.";
+          loginError.textContent = "Credenciales incorrectas o usuario inactivo.";
           loginError.classList.remove('hidden');
         }
       });
