@@ -1,68 +1,135 @@
-// supabaseClient.js - Conector central con Supabase y lógica de sesión
+// ============================================================
+// HospedaYa — supabaseClient.js
+// Inicialización de Supabase y helpers de consulta seguros
+// ============================================================
+
 const { createClient } = supabase;
-const db = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+const db = createClient(SUPABASE_URL, SUPABASE_ANON);
 
-const AuthManager = {
-  // Iniciar sesión con email y password
-  async login(email, password) {
-    const { data, error } = await db.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-    return data;
-  },
-
-  // Cerrar sesión
-  async logout() {
-    const { error } = await db.auth.signOut();
-    if (error) console.error("Error al salir:", error.message);
-    window.location.reload();
-  },
-
-  // Obtener usuario autenticado actual
-  async getUsuarioActual() {
-    const { data: { session } } = await db.auth.getSession();
-    if (!session) return null;
-
-    // Obtener perfil y datos del hotel
-    const { data: perfil, error: errPerfil } = await db
-      .from('perfiles_usuarios')
-      .select('*, hoteles(*)')
-      .eq('id', session.user.id)
-      .single();
-
-    if (errPerfil || !perfil) return null;
-    return perfil;
-  },
-
-  // Validar estado de la suscripción del hotel
-  verificarSuscripcion(hotel) {
-    if (!hotel) return { permitido: false, razon: 'no_hotel' };
-    if (hotel.estado === 'suspendido') {
-      return { permitido: false, razon: 'suspendido', diasRestantes: 0 };
-    }
-
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-
-    const fechaVence = new Date(hotel.fecha_vencimiento);
-    fechaVence.setHours(0, 0, 0, 0);
-
-    // Sumar días de gracia a la fecha límite
-    const fechaLimiteGracia = new Date(fechaVence);
-    fechaLimiteGracia.setDate(fechaLimiteGracia.getDate() + (hotel.dias_gracia || 0));
-
-    const diffTiempo = fechaLimiteGracia.getTime() - hoy.getTime();
-    const diasRestantes = Math.ceil(diffTiempo / (1000 * 60 * 60 * 24));
-
-    if (diasRestantes < 0) {
-      return { permitido: false, razon: 'vencido', diasRestantes };
-    }
-
-    const mostrarAlertaRenovacion = diasRestantes <= 5;
-    return {
-      permitido: true,
-      diasRestantes,
-      mostrarAlertaRenovacion,
-      enGracia: hoy > fechaVence && diasRestantes >= 0
-    };
-  }
+// ── Estado global de sesión ─────────────────────────────────
+let SESSION = {
+  user:        null,   // objeto auth.user
+  perfil:      null,   // fila de perfiles_usuarios
+  hotel:       null,   // fila de hoteles
+  turnoActivo: null,   // turno_caja abierto (si aplica)
 };
+
+// ── Auth helpers ────────────────────────────────────────────
+async function signIn(email, password) {
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  if (error) throw error;
+  return data;
+}
+
+async function signOut() {
+  await db.auth.signOut();
+  SESSION = { user: null, perfil: null, hotel: null, turnoActivo: null };
+}
+
+async function getSession() {
+  const { data: { session } } = await db.auth.getSession();
+  return session;
+}
+
+// ── Cargar perfil completo tras login ───────────────────────
+async function cargarPerfil(userId) {
+  const { data, error } = await db
+    .from('perfiles_usuarios')
+    .select('*')
+    .eq('user_id', userId)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function cargarHotel(hotelId) {
+  const { data, error } = await db
+    .from('hoteles')
+    .select('*')
+    .eq('id', hotelId)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// ── Verificar estado de suscripción ─────────────────────────
+function estadoSuscripcion(hotel) {
+  if (!hotel) return 'sin_hotel';
+  const ahora     = new Date();
+  const vence     = new Date(hotel.fecha_vencimiento);
+  const diffDias  = Math.ceil((vence - ahora) / (1000 * 60 * 60 * 24));
+
+  if (hotel.estado === 'suspendido') return 'suspendido';
+  if (diffDias < 0)                  return 'vencido';
+  if (diffDias <= 5)                 return 'por_vencer';
+  return 'vigente';
+}
+
+// ── Helpers de datos ─────────────────────────────────────────
+
+// Habitaciones con estado en tiempo real
+async function getHabitaciones() {
+  const { data, error } = await db
+    .from('habitaciones')
+    .select(`
+      *,
+      tipos_habitacion ( nombre, tarifa_noche, tarifa_horas, horas_bloque )
+    `)
+    .eq('hotel_id', SESSION.hotel.id)
+    .eq('activo', true)
+    .order('numero');
+  if (error) throw error;
+  return data;
+}
+
+// Turno abierto del recepcionista actual
+async function getTurnoAbierto() {
+  const { data, error } = await db
+    .from('turnos_caja')
+    .select('*')
+    .eq('hotel_id', SESSION.hotel.id)
+    .eq('recepcionista_id', SESSION.user.id)
+    .eq('estado', 'abierto')
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+// Todos los hoteles (solo superadmin)
+async function getHoteles() {
+  const { data, error } = await db
+    .from('hoteles')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+// Dashboard superadmin
+async function getDashboardSuperadmin() {
+  const { data, error } = await db
+    .from('v_dashboard_superadmin')
+    .select('*')
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Suscripción del hotel actual
+async function getSuscripcionHotel(hotelId) {
+  const { data, error } = await db
+    .from('v_suscripcion_hotel')
+    .select('*')
+    .eq('id', hotelId)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Llamar función SECURITY DEFINER
+async function rpc(fn, params = {}) {
+  const { data, error } = await db.rpc(fn, params);
+  if (error) throw error;
+  return data;
+}
