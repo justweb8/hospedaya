@@ -67,8 +67,27 @@ function estadoSuscripcion(hotel) {
 
 // ── Helpers de datos ─────────────────────────────────────────
 
+// Garantiza que SESSION.perfil y SESSION.hotel estén cargados.
+// Si por algún refresco de sesión se perdieron, los recarga desde la BD.
+async function asegurarSesion() {
+  if (!SESSION.user) {
+    const s = await getSession();
+    if (s) SESSION.user = s.user;
+  }
+  if (!SESSION.user) throw new Error('No hay sesión activa. Vuelve a iniciar sesión.');
+
+  if (!SESSION.perfil) {
+    SESSION.perfil = await cargarPerfil(SESSION.user.id);
+  }
+  if (!SESSION.hotel && SESSION.perfil?.hotel_id) {
+    SESSION.hotel = await cargarHotel(SESSION.perfil.hotel_id);
+  }
+  return SESSION;
+}
+
 // Habitaciones con estado en tiempo real
 async function getHabitaciones() {
+  await asegurarSesion();
   const { data, error } = await db
     .from('habitaciones')
     .select(`
@@ -84,6 +103,7 @@ async function getHabitaciones() {
 
 // Turno abierto del recepcionista actual
 async function getTurnoAbierto() {
+  await asegurarSesion();
   const { data, error } = await db
     .from('turnos_caja')
     .select('*')

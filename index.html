@@ -1324,6 +1324,12 @@ db.auth.onAuthStateChange(async (event, session) => {
   // usuario del módulo donde está trabajando).
   if (_sesionInicializada && session.user.id === _usuarioActualId) {
     SESSION.user = session.user;
+    // Salvaguarda: si por algún motivo se perdió el perfil/hotel, recargarlos
+    // sin reconstruir la vista (para no sacar al usuario de donde está).
+    try {
+      if (!SESSION.perfil) SESSION.perfil = await cargarPerfil(session.user.id);
+      if (!SESSION.hotel && SESSION.perfil?.hotel_id) SESSION.hotel = await cargarHotel(SESSION.perfil.hotel_id);
+    } catch (e) { console.warn('No se pudo recargar perfil/hotel:', e); }
     return;
   }
 
