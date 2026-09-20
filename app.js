@@ -1267,85 +1267,255 @@ function estadoTarjeta(label, valor, color) {
 //  HOTEL › RACK INTERACTIVO DE HABITACIONES
 // ════════════════════════════════════════════════════════════
 const COLORES_ESTADO = {
-  libre:         { bg: '#F0FDF4', borde: '#16A34A', texto: '#15803D', label: 'Libre' },
-  ocupada:       { bg: '#FEF2F2', borde: '#DC2626', texto: '#B91C1C', label: 'Ocupada' },
-  limpieza:      { bg: '#FEFCE8', borde: '#CA8A04', texto: '#A16207', label: 'Limpieza' },
-  reservada:     { bg: '#EFF6FF', borde: '#2563EB', texto: '#1D4ED8', label: 'Reservada' },
-  mantenimiento: { bg: '#F1F5F9', borde: '#64748B', texto: '#475569', label: 'Mantenim.' },
+  libre:         { bg: '#F0FDF4', borde: '#16A34A', texto: '#15803D', label: 'Libre',        badgeBg:'#16A34A' },
+  ocupada:       { bg: '#FEF2F2', borde: '#DC2626', texto: '#B91C1C', label: 'Ocupada',      badgeBg:'#DC2626' },
+  limpieza:      { bg: '#FEFCE8', borde: '#CA8A04', texto: '#A16207', label: 'Limpieza',     badgeBg:'#CA8A04' },
+  reservada:     { bg: '#EFF6FF', borde: '#2563EB', texto: '#1D4ED8', label: 'Reservada',    badgeBg:'#2563EB' },
+  mantenimiento: { bg: '#F1F5F9', borde: '#64748B', texto: '#475569', label: 'Mantenim.',    badgeBg:'#64748B' },
 };
+
+// Fotos de fondo por tipo de habitación (Unsplash, sin auth)
+const FOTOS_HAB = [
+  'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=400&q=70',
+  'https://images.unsplash.com/photo-1618773928121-c32242e63f39?w=400&q=70',
+  'https://images.unsplash.com/photo-1590490360182-c33d57733427?w=400&q=70',
+  'https://images.unsplash.com/photo-1566665797739-1674de7a421a?w=400&q=70',
+  'https://images.unsplash.com/photo-1582719508461-905c673771fd?w=400&q=70',
+  'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=400&q=70',
+];
+
+// Estado del rack (filtros)
+let _rackFiltroEstado = 'todos';
+let _rackVista = 'cuadricula'; // 'cuadricula' | 'lista'
+let _rackHabs = [];
 
 async function moduloRack() {
   skeleton();
   try {
-    // Verificar turno abierto (necesario para cobrar)
     SESSION.turnoActivo = await getTurnoAbierto();
-    const habs = await getHabitaciones();
-
-    if (habs.length === 0) {
-      contenido().innerHTML = `
-        <div class="seccion-titulo">Rack de Habitaciones</div>
-        <div class="seccion-sub">Aún no hay habitaciones creadas</div>
-        <div class="card" style="max-width:480px;">
-          <p style="font-size:0.9rem; color:var(--texto-sub);">
-            Primero crea tus tipos de habitación y habitaciones desde el menú
-            <strong>Habitaciones</strong> (config).
-          </p>
-          ${SESSION.perfil.rol === 'admin'
-            ? `<button style="${ST.btnPri}; width:auto; padding:0.6rem 1.2rem;" onclick="navegarA('habitacion-config')">Ir a configuración</button>`
-            : ''}
-        </div>`;
-      return;
-    }
-
-    const avisoTurno = !SESSION.turnoActivo
-      ? `<div style="background:#FFFBEB; border:1px solid #FDE68A; border-radius:10px; padding:0.75rem 1rem; margin-bottom:1rem; font-size:0.83rem; color:#92400E;">
-           ⚠️ No tienes turno de caja abierto. <a href="#" onclick="navegarA('caja');return false;" style="color:#92400E; font-weight:600; text-decoration:underline;">Ábrelo</a> para poder cobrar check-ins.
-         </div>`
-      : '';
-
-    contenido().innerHTML = `
-      <div class="seccion-titulo">Rack de Habitaciones</div>
-      <div class="seccion-sub">Toca una habitación para operar</div>
-      ${avisoTurno}
-
-      <!-- Leyenda -->
-      <div style="display:flex; gap:1rem; flex-wrap:wrap; margin-bottom:1.25rem;">
-        ${Object.entries(COLORES_ESTADO).map(([k, c]) => `
-          <div style="display:flex; align-items:center; gap:0.4rem; font-size:0.78rem; color:var(--texto-sub);">
-            <span style="width:14px; height:14px; border-radius:4px; background:${c.bg}; border:2px solid ${c.borde};"></span>
-            ${c.label}
-          </div>`).join('')}
-      </div>
-
-      <!-- Grid de habitaciones -->
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:0.85rem;">
-        ${habs.map(h => tarjetaHabitacion(h)).join('')}
-      </div>
-    `;
+    _rackHabs = await getHabitaciones();
+    renderRack();
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar el rack', err.message);
   }
 }
 
-function tarjetaHabitacion(h) {
+function renderRack() {
+  const habs = _rackHabs;
+  if (habs.length === 0) {
+    contenido().innerHTML = `
+      <div class="seccion-titulo">Rack de Habitaciones</div>
+      <div class="seccion-sub">Aún no hay habitaciones creadas</div>
+      <div class="card" style="max-width:480px;">
+        <p style="font-size:0.9rem; color:var(--texto-sub);">Primero crea tus tipos de habitación y habitaciones desde el menú <strong>Habitaciones</strong>.</p>
+        ${SESSION.perfil.rol==='admin'?`<button style="${ST.btnPri}; width:auto; padding:0.6rem 1.2rem;" onclick="navegarA('habitacion-config')">Ir a configuración</button>`:''}
+      </div>`;
+    return;
+  }
+
+  const conteo = { libre:0, ocupada:0, limpieza:0, reservada:0, mantenimiento:0 };
+  habs.forEach(h => { if(conteo[h.estado]!==undefined) conteo[h.estado]++; });
+  const total = habs.length;
+
+  // Filtrar
+  const habsFiltradas = _rackFiltroEstado === 'todos' ? habs : habs.filter(h => h.estado === _rackFiltroEstado);
+
+  // Agrupar por piso
+  const pisos = {};
+  habsFiltradas.forEach(h => {
+    const p = h.piso || '—';
+    if (!pisos[p]) pisos[p] = [];
+    pisos[p].push(h);
+  });
+  const pisosOrden = Object.keys(pisos).sort();
+
+  const avisoTurno = !SESSION.turnoActivo
+    ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:0.7rem 1rem;margin-bottom:1rem;font-size:0.83rem;color:#92400E;">
+         ⚠️ No tienes turno de caja abierto. <a href="#" onclick="navegarA('caja');return false;" style="color:#92400E;font-weight:600;text-decoration:underline;">Ábrelo</a> para cobrar check-ins.
+       </div>` : '';
+
+  const filtroBtn = (estado, label, cnt, color) => `
+    <button onclick="setRackFiltro('${estado}')"
+      style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.9rem;border-radius:999px;font-size:0.82rem;font-weight:600;cursor:pointer;border:1.5px solid ${_rackFiltroEstado===estado?color:'var(--gris-borde)'};background:${_rackFiltroEstado===estado?color:'white'};color:${_rackFiltroEstado===estado?'white':'var(--texto-sub)'};">
+      ${label} <span style="background:${_rackFiltroEstado===estado?'rgba(255,255,255,0.25)':'var(--gris-bg)'};color:${_rackFiltroEstado===estado?'white':'var(--texto)'};border-radius:999px;padding:0 0.4rem;font-size:0.75rem;">${cnt}</span>
+    </button>`;
+
+  contenido().innerHTML = `
+    <!-- Header -->
+    <div style="margin-bottom:1.25rem;">
+      <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Rack de Habitaciones</h1>
+      <div style="font-size:0.88rem;color:var(--texto-sub);margin-top:0.25rem;">Visualiza el estado de todas las habitaciones y realiza operaciones de forma rápida.</div>
+    </div>
+
+    <!-- 5 tarjetas de resumen -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.85rem;margin-bottom:1.25rem;">
+      ${rackStatCard('Habitaciones libres',   conteo.libre,         total, '#16A34A','#F0FDF4', 'bed-libre')}
+      ${rackStatCard('Habitaciones ocupadas', conteo.ocupada,       total, '#DC2626','#FEF2F2', 'bed-ocu')}
+      ${rackStatCard('En limpieza',           conteo.limpieza,      total, '#CA8A04','#FEFCE8', 'broom')}
+      ${rackStatCard('Reservadas',            conteo.reservada,     total, '#2563EB','#EFF6FF', 'calendar')}
+      ${rackStatCard('En mantenimiento',      conteo.mantenimiento, total, '#64748B','#F1F5F9', 'wrench')}
+    </div>
+
+    ${avisoTurno}
+
+    <!-- Filtros + toggle vista -->
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:0.5rem;margin-bottom:1.25rem;background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:0.75rem 1rem;">
+      ${filtroBtn('todos','Todos',total,'#1C2B4A')}
+      ${filtroBtn('libre','Libre',conteo.libre,'#16A34A')}
+      ${filtroBtn('ocupada','Ocupada',conteo.ocupada,'#DC2626')}
+      ${filtroBtn('limpieza','Limpieza',conteo.limpieza,'#CA8A04')}
+      ${filtroBtn('reservada','Reservada',conteo.reservada,'#2563EB')}
+      ${filtroBtn('mantenimiento','Mantenimiento',conteo.mantenimiento,'#64748B')}
+      <div style="flex:1;"></div>
+      <div style="display:flex;border:1.5px solid var(--gris-borde);border-radius:9px;overflow:hidden;">
+        <button onclick="setRackVista('cuadricula')" title="Cuadrícula"
+          style="padding:0.45rem 0.75rem;border:none;cursor:pointer;background:${_rackVista==='cuadricula'?'var(--azul)':'white'};color:${_rackVista==='cuadricula'?'white':'var(--texto-sub)'};">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+        </button>
+        <button onclick="setRackVista('lista')" title="Lista"
+          style="padding:0.45rem 0.75rem;border:none;cursor:pointer;background:${_rackVista==='lista'?'var(--azul)':'white'};color:${_rackVista==='lista'?'white':'var(--texto-sub)'};">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Habitaciones agrupadas por piso -->
+    <div id="rack-pisos">
+      ${pisosOrden.map(p => renderPiso(p, pisos[p])).join('')}
+      ${pisosOrden.length === 0 ? filaVacia('No hay habitaciones con ese filtro.') : ''}
+    </div>
+  `;
+}
+
+function rackStatCard(label, valor, total, color, bg, tipo) {
+  const pct = total > 0 ? Math.round((valor/total)*100) : 0;
+  const iconos = {
+    'bed-libre': '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+    'bed-ocu':   '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+    'broom':     '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/>',
+    'calendar':  '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    'wrench':    '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+  };
+  return `
+    <div class="card" style="padding:1rem;">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.6rem;">
+        <div style="width:44px;height:44px;border-radius:12px;background:${bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px;">${iconos[tipo]||''}</svg>
+        </div>
+        <div>
+          <div style="font-size:1.65rem;font-weight:700;color:var(--texto);line-height:1;">${valor}</div>
+          <div style="font-size:0.75rem;color:var(--texto-sub);">${label}</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <div style="flex:1;height:6px;background:var(--gris-borde);border-radius:999px;overflow:hidden;">
+          <div style="width:${pct}%;height:100%;background:${color};border-radius:999px;"></div>
+        </div>
+        <span style="font-size:0.72rem;font-weight:700;color:${color};">${pct}%</span>
+      </div>
+    </div>`;
+}
+
+function renderPiso(piso, habs) {
+  const cnt = { libre:0, ocupada:0, limpieza:0, reservada:0, mantenimiento:0 };
+  habs.forEach(h => { if(cnt[h.estado]!==undefined) cnt[h.estado]++; });
+
+  const resumenPiso = `
+    <span style="font-size:0.78rem;color:var(--texto-sub);display:flex;gap:0.75rem;flex-wrap:wrap;">
+      <span>🟢 ${cnt.libre} libres</span>
+      <span>🔴 ${cnt.ocupada} ocupadas</span>
+      <span>🟡 ${cnt.limpieza} limpieza</span>
+      <span>🔵 ${cnt.reservada} reservadas</span>
+      <span>⚫ ${cnt.mantenimiento} mantenimiento</span>
+    </span>`;
+
+  const grid = _rackVista === 'cuadricula'
+    ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;">${habs.map(h => tarjetaHabNueva(h)).join('')}</div>`
+    : `<div style="display:flex;flex-direction:column;gap:0.5rem;">${habs.map(h => filaHabLista(h)).join('')}</div>`;
+
+  return `
+    <div style="margin-bottom:1.75rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;margin-bottom:0.85rem;">
+        <div style="display:flex;align-items:center;gap:0.75rem;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--azul)" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;cursor:pointer;"><polyline points="18 15 12 9 6 15"/></svg>
+          <span style="font-weight:700;font-size:1rem;">${piso === '—' ? 'Sin piso asignado' : 'Piso '+escapeHtml(piso)}</span>
+          <span style="background:var(--gris-bg);color:var(--texto-sub);font-size:0.75rem;font-weight:600;padding:0.15rem 0.65rem;border-radius:999px;">${habs.length} habitaciones</span>
+        </div>
+        ${resumenPiso}
+      </div>
+      ${grid}
+    </div>`;
+}
+
+function tarjetaHabNueva(h) {
+  const c = COLORES_ESTADO[h.estado] || COLORES_ESTADO.libre;
+  const tipo = h.tipos_habitacion || {};
+  // Foto pseudo-aleatoria pero consistente por número de habitación
+  const fotoIdx = (parseInt(h.numero.replace(/\D/g,''))||0) % FOTOS_HAB.length;
+  const foto = FOTOS_HAB[fotoIdx];
+  return `
+    <div onclick="abrirHabitacion('${h.id}')" style="cursor:pointer;border-radius:16px;overflow:hidden;border:1.5px solid var(--gris-borde);background:white;transition:box-shadow 0.15s,transform 0.1s;"
+         onmouseover="this.style.boxShadow='0 8px 24px rgba(0,0,0,0.12)';this.style.transform='translateY(-2px)'"
+         onmouseout="this.style.boxShadow='none';this.style.transform='translateY(0)'">
+      <!-- Foto + badge de estado -->
+      <div style="position:relative;height:130px;background:#E2E8F0;overflow:hidden;">
+        <img src="${foto}" alt="hab" loading="lazy" style="width:100%;height:100%;object-fit:cover;" onerror="this.style.display='none'">
+        <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,0.08) 0%,rgba(0,0,0,0.35) 100%);"></div>
+        <span style="position:absolute;top:0.65rem;left:0.65rem;font-size:1.4rem;font-weight:800;color:white;text-shadow:0 1px 4px rgba(0,0,0,0.5);">${escapeHtml(h.numero)}</span>
+        <span style="position:absolute;top:0.65rem;right:0.65rem;font-size:0.65rem;font-weight:700;color:white;background:${c.badgeBg};padding:0.2rem 0.55rem;border-radius:999px;">${c.label}</span>
+      </div>
+      <!-- Info -->
+      <div style="padding:0.85rem;">
+        <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.4rem;">${escapeHtml(tipo.nombre||'Sin tipo')}</div>
+        <div style="display:flex;align-items:center;gap:0.85rem;font-size:0.78rem;color:var(--texto-sub);">
+          <span style="display:flex;align-items:center;gap:0.25rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            ${tipo.capacidad_max||'—'}
+          </span>
+          <span style="display:flex;align-items:center;gap:0.25rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            ${soles(tipo.tarifa_noche||0)}
+          </span>
+        </div>
+        <div style="display:flex;gap:0.5rem;margin-top:0.75rem;">
+          <button onclick="event.stopPropagation();abrirHabitacion('${h.id}')" style="${ST.btnSec};flex:1;padding:0.4rem 0;font-size:0.78rem;text-align:center;">Ver más</button>
+          <button onclick="event.stopPropagation();abrirMenuRapidoHab('${h.id}')" style="${ST.btnSec};padding:0.4rem 0.6rem;font-size:0.78rem;">···</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function filaHabLista(h) {
   const c = COLORES_ESTADO[h.estado] || COLORES_ESTADO.libre;
   const tipo = h.tipos_habitacion || {};
   return `
-    <div onclick="abrirHabitacion('${h.id}')" style="
-        cursor:pointer; background:${c.bg}; border:2px solid ${c.borde};
-        border-radius:14px; padding:1rem; transition:transform 0.1s;
-        display:flex; flex-direction:column; gap:0.35rem;"
-        onmouseover="this.style.transform='translateY(-2px)'"
-        onmouseout="this.style.transform='translateY(0)'">
-      <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-        <span style="font-size:1.35rem; font-weight:700; color:var(--texto);">${escapeHtml(h.numero)}</span>
-        <span style="font-size:0.62rem; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:${c.texto}; background:white; padding:0.15rem 0.45rem; border-radius:999px;">${c.label}</span>
+    <div onclick="abrirHabitacion('${h.id}')" class="card" style="padding:0.85rem 1.1rem;display:flex;align-items:center;gap:1rem;cursor:pointer;transition:box-shadow 0.15s;"
+         onmouseover="this.style.boxShadow='0 4px 16px rgba(0,0,0,0.08)'"
+         onmouseout="this.style.boxShadow='none'">
+      <div style="width:44px;height:44px;border-radius:12px;background:${c.bg};display:flex;align-items:center;justify-content:center;font-size:1.1rem;font-weight:700;color:${c.texto};flex-shrink:0;">${escapeHtml(h.numero)}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;font-size:0.9rem;">${escapeHtml(tipo.nombre||'Sin tipo')}</div>
+        <div style="font-size:0.75rem;color:var(--texto-sub);">Piso ${escapeHtml(h.piso||'—')} · Cap. ${tipo.capacidad_max||'—'} · ${soles(tipo.tarifa_noche||0)}/noche</div>
       </div>
-      <div style="font-size:0.75rem; color:var(--texto-sub);">${escapeHtml(tipo.nombre || 'Sin tipo')}</div>
-      <div style="font-size:0.72rem; color:var(--texto-sub);">
-        Noche ${soles(tipo.tarifa_noche)} · ${tipo.horas_bloque || 3}h ${soles(tipo.tarifa_horas)}
-      </div>
+      <span style="font-size:0.72rem;font-weight:700;color:white;background:${c.badgeBg};padding:0.25rem 0.75rem;border-radius:999px;white-space:nowrap;">${c.label}</span>
+      <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
     </div>`;
+}
+
+function setRackFiltro(estado) {
+  _rackFiltroEstado = estado;
+  renderRack();
+}
+
+function setRackVista(vista) {
+  _rackVista = vista;
+  renderRack();
+}
+
+function abrirMenuRapidoHab(habId) {
+  const h = _rackHabs.find(x => x.id === habId);
+  if (!h) return;
+  abrirCambioEstadoSimple(h);
 }
 
 // ── Acciones sobre una habitación según su estado ───────────
