@@ -1034,60 +1034,224 @@ async function moduloDashboardHotel() {
     const ocupadas = conteo.ocupada + conteo.reservada;
     const pctOcupacion = totalHabs > 0 ? Math.round((ocupadas / totalHabs) * 100) : 0;
 
-    contenido().innerHTML = `
-      <div class="seccion-titulo">Dashboard</div>
-      <div class="seccion-sub">${escapeHtml(SESSION.hotel.nombre_comercial)}</div>
+    // ── Datos reales para las secciones ──
+    const hoyIni = new Date(); hoyIni.setHours(0,0,0,0);
+    const hoyFin = new Date(); hoyFin.setHours(23,59,59,999);
 
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:0.85rem; margin-bottom:1.5rem;">
-        ${estadoTarjeta('Libres', conteo.libre, '#16A34A')}
-        ${estadoTarjeta('Ocupadas', conteo.ocupada, '#DC2626')}
-        ${estadoTarjeta('Limpieza', conteo.limpieza, '#CA8A04')}
-        ${estadoTarjeta('Reservadas', conteo.reservada, '#2563EB')}
+    // Llegadas de hoy: check-ins (estadías creadas hoy) + reservas con entrada hoy
+    const { data: llegadas } = await db.from('estadias_reservas')
+      .select(`fecha_entrada, estado, habitaciones(numero), huespedes(nombres, apellidos)`)
+      .eq('hotel_id', SESSION.hotel.id)
+      .gte('fecha_entrada', hoyIni.toISOString()).lte('fecha_entrada', hoyFin.toISOString())
+      .order('fecha_entrada').limit(6);
+
+    // Reservas próximas: reservas a futuro con entrada > ahora
+    const { data: reservasProx } = await db.from('estadias_reservas')
+      .select(`fecha_entrada, habitaciones(numero), huespedes(nombres, apellidos)`)
+      .eq('hotel_id', SESSION.hotel.id)
+      .eq('estado', 'reservada')
+      .gte('fecha_entrada', new Date().toISOString())
+      .order('fecha_entrada').limit(6);
+
+    // Ingresos del día (movimientos de caja de hoy)
+    const { data: movsHoy } = await db.from('movimientos_caja')
+      .select('tipo, monto, metodo_pago, created_at')
+      .eq('hotel_id', SESSION.hotel.id)
+      .gte('created_at', hoyIni.toISOString()).lte('created_at', hoyFin.toISOString())
+      .limit(2000);
+    const ingresosHoy = (movsHoy||[]).filter(m => m.tipo==='ingreso').reduce((s,m)=>s+Number(m.monto),0);
+
+    // Ingresos por hora (para el gráfico de barras)
+    const porHora = {};
+    (movsHoy||[]).forEach(m => {
+      if (m.tipo !== 'ingreso') return;
+      const h = new Date(m.created_at).getHours();
+      porHora[h] = (porHora[h]||0) + Number(m.monto);
+    });
+    const horasLabels = ['8 a.m.','10 a.m.','12 p.m.','2 p.m.','4 p.m.','6 p.m.','8 p.m.'];
+    const horasKeys = [8,10,12,14,16,18,20];
+    const horasData = horasKeys.map(h => (porHora[h]||0) + (porHora[h+1]||0));
+
+    const fechaHoy = new Date().toLocaleDateString('es-PE', { weekday:'long', day:'numeric', month:'long', year:'numeric' });
+    const nombreUsuario = SESSION.perfil.nombre_completo || SESSION.hotel.nombre_comercial;
+
+    contenido().innerHTML = `
+      <!-- Saludo -->
+      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem; margin-bottom:1.5rem;">
+        <div>
+          <h1 style="font-size:1.75rem; font-weight:700; color:var(--texto); margin:0;">¡Hola, ${escapeHtml(nombreUsuario)}! 👋</h1>
+          <p style="color:var(--texto-sub); margin:0.35rem 0 0; font-size:0.92rem;">Aquí tienes un resumen de la operación de hoy.</p>
+        </div>
+        <div class="card" style="display:flex; align-items:center; gap:0.75rem; padding:0.85rem 1.15rem;">
+          <div style="width:38px;height:38px;border-radius:10px;background:rgba(37,99,235,0.1);display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="var(--azul)" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <div>
+            <div style="font-size:0.82rem; font-weight:600; color:var(--texto); text-transform:capitalize;">${fechaHoy}</div>
+            <div style="font-size:0.72rem; color:var(--texto-sub);">Buen día, que sea una gran jornada.</div>
+          </div>
+        </div>
       </div>
 
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+      <!-- 4 tarjetas de estado -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:1rem; margin-bottom:1.25rem;">
+        ${dashTarjeta('Habitaciones libres', conteo.libre, '#16A34A', '#F0FDF4', 'bed', 'rack')}
+        ${dashTarjeta('Habitaciones ocupadas', conteo.ocupada, '#DC2626', '#FEF2F2', 'bed', 'rack')}
+        ${dashTarjeta('En limpieza', conteo.limpieza, '#CA8A04', '#FEFCE8', 'sparkles', 'rack')}
+        ${dashTarjeta('Reservadas', conteo.reservada, '#2563EB', '#EFF6FF', 'calendar', 'reservas')}
+      </div>
+
+      <!-- Ocupación + Turno de caja -->
+      <div style="display:grid; grid-template-columns:1.4fr 1fr; gap:1rem; margin-bottom:1.25rem;" class="dash-fila">
         <div class="card">
-          <div style="font-weight:600; margin-bottom:1rem;">Ocupación actual · ${pctOcupacion}%</div>
-          <div style="max-width:220px; margin:0 auto;">
-            <canvas id="chart-ocupacion"></canvas>
+          <div style="display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:0.5rem;">
+            <div>
+              <div style="font-weight:700; font-size:1.05rem;">Ocupación actual</div>
+              <div style="font-size:0.8rem; color:var(--texto-sub);">Resumen de estado de habitaciones</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap;">
+            <div style="position:relative; width:170px; height:170px;">
+              <canvas id="chart-ocupacion"></canvas>
+              <div style="position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none;">
+                <div style="font-size:0.7rem; color:var(--texto-sub);">Total</div>
+                <div style="font-size:1.6rem; font-weight:700;">${totalHabs}</div>
+              </div>
+            </div>
+            <div style="flex:1; min-width:180px;">
+              ${leyendaOcupacion('Libres', conteo.libre, totalHabs, '#16A34A')}
+              ${leyendaOcupacion('Ocupadas', conteo.ocupada, totalHabs, '#DC2626')}
+              ${leyendaOcupacion('Limpieza', conteo.limpieza, totalHabs, '#CA8A04')}
+              ${leyendaOcupacion('Reservadas', conteo.reservada, totalHabs, '#2563EB')}
+              ${leyendaOcupacion('Mantenimiento', conteo.mantenimiento, totalHabs, '#64748B')}
+            </div>
           </div>
         </div>
 
         <div class="card">
-          <div style="font-weight:600; margin-bottom:0.75rem;">Tu turno de caja</div>
-          ${turno
-            ? `<div style="font-size:0.85rem; color:var(--texto-sub);">Turno abierto desde ${fechaHora(turno.apertura_at)}<br>Fondo inicial ${soles(turno.fondo_inicial)}</div>
-               <button style="${ST.btnSec}; margin-top:0.75rem;" onclick="navegarA('caja')">Ir a caja</button>`
-            : `<div style="font-size:0.85rem; color:var(--texto-sub);">No tienes turno abierto. Ábrelo para empezar a operar.</div>
-               <button style="${ST.btnPri}; width:auto; padding:0.6rem 1.2rem; margin-top:0.75rem;" onclick="navegarA('caja')">Abrir turno</button>`}
+          <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem;">
+            <span style="font-weight:700; font-size:1.05rem;">Tu turno de caja</span>
+            ${turno ? '<span style="font-size:0.68rem; font-weight:700; color:#16A34A; background:#F0FDF4; padding:0.15rem 0.6rem; border-radius:999px;">● Abierto</span>' : '<span style="font-size:0.68rem; font-weight:700; color:#DC2626; background:#FEF2F2; padding:0.15rem 0.6rem; border-radius:999px;">● Cerrado</span>'}
+          </div>
+          ${turno ? `
+            <div style="background:var(--gris-bg); border-radius:12px; padding:1rem; margin-bottom:1rem;">
+              <div style="font-size:0.72rem; color:var(--texto-sub);">Turno abierto desde</div>
+              <div style="font-weight:600; font-size:0.92rem;">${fechaHora(turno.apertura_at)}</div>
+              <div style="font-size:0.72rem; color:var(--texto-sub); margin-top:0.6rem;">Fondo inicial</div>
+              <div style="font-weight:700; font-size:1.15rem; color:var(--azul);">${soles(turno.fondo_inicial)}</div>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+              <button style="${ST.btnPri}; flex:1;" onclick="navegarA('caja')">Ir a caja</button>
+            </div>`
+          : `
+            <div style="font-size:0.85rem; color:var(--texto-sub); margin-bottom:1rem;">No tienes turno abierto. Ábrelo para empezar a operar y cobrar.</div>
+            <button style="${ST.btnPri}; width:100%;" onclick="navegarA('caja')">Abrir turno</button>`}
+        </div>
+      </div>
+
+      <!-- Llegadas + Reservas + Ingresos -->
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem;">
+        <!-- Llegadas de hoy -->
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem;">
+            <span style="font-weight:700;">Llegadas de hoy</span>
+            <a href="#" onclick="navegarA('huespedes');return false;" style="font-size:0.78rem; color:var(--azul); text-decoration:none; font-weight:600;">Ver todas</a>
+          </div>
+          ${(llegadas||[]).length ? llegadas.map(l => filaPersona(l.huespedes, l.habitaciones?.numero, new Date(l.fecha_entrada).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}), l.estado==='activa'?['Llegó','#16A34A','#F0FDF4']:['Pendiente','#CA8A04','#FEFCE8'])).join('') : filaVacia('Sin llegadas registradas hoy')}
+        </div>
+
+        <!-- Reservas próximas -->
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.85rem;">
+            <span style="font-weight:700;">Reservas próximas</span>
+            <a href="#" onclick="navegarA('reservas');return false;" style="font-size:0.78rem; color:var(--azul); text-decoration:none; font-weight:600;">Ver todas</a>
+          </div>
+          ${(reservasProx||[]).length ? reservasProx.map(r => filaPersona(r.huespedes, r.habitaciones?.numero, new Date(r.fecha_entrada).toLocaleDateString('es-PE',{day:'numeric',month:'short'}), ['Confirmada','#16A34A','#F0FDF4'])).join('') : filaVacia('Sin reservas próximas')}
+        </div>
+
+        <!-- Ingresos del día -->
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.35rem;">
+            <span style="font-weight:700;">Ingresos del día</span>
+          </div>
+          <div style="font-size:1.75rem; font-weight:700; color:var(--texto); margin-bottom:0.85rem;">${soles(ingresosHoy)}</div>
+          <canvas id="chart-ingresos-hoy" style="max-height:150px;"></canvas>
         </div>
       </div>
     `;
 
-    // Dibujar gráfico de dona (Chart.js)
+    // Gráfico de dona de ocupación
     if (typeof Chart !== 'undefined') {
       const ctx = document.getElementById('chart-ocupacion');
-      if (ctx) {
-        new Chart(ctx, {
-          type: 'doughnut',
-          data: {
-            labels: ['Libres', 'Ocupadas', 'Limpieza', 'Reservadas', 'Mantenim.'],
-            datasets: [{
-              data: [conteo.libre, conteo.ocupada, conteo.limpieza, conteo.reservada, conteo.mantenimiento],
-              backgroundColor: ['#16A34A', '#DC2626', '#CA8A04', '#2563EB', '#64748B'],
-              borderWidth: 2, borderColor: '#fff',
-            }],
-          },
-          options: {
-            plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12 } } },
-            cutout: '62%',
-          },
-        });
-      }
+      if (ctx) new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Libres','Ocupadas','Limpieza','Reservadas','Mantenim.'],
+          datasets: [{ data:[conteo.libre,conteo.ocupada,conteo.limpieza,conteo.reservada,conteo.mantenimiento], backgroundColor:['#16A34A','#DC2626','#CA8A04','#2563EB','#64748B'], borderWidth:3, borderColor:'#fff' }],
+        },
+        options: { plugins:{ legend:{ display:false } }, cutout:'72%' },
+      });
+
+      const ctx2 = document.getElementById('chart-ingresos-hoy');
+      if (ctx2) new Chart(ctx2, {
+        type: 'bar',
+        data: { labels: horasLabels, datasets:[{ data: horasData, backgroundColor:'#2563EB', borderRadius:6, barThickness:14 }] },
+        options: { plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ font:{size:10} } }, x:{ ticks:{ font:{size:9} } } } },
+      });
     }
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar el dashboard', err.message);
   }
+}
+
+// Tarjeta de estado del dashboard (estilo imagen)
+function dashTarjeta(label, valor, color, bg, icon, modulo) {
+  const iconos = {
+    bed: '<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+    sparkles: '<path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+  };
+  return `
+    <div class="card" style="display:flex; align-items:center; gap:1rem; cursor:pointer; padding:1.15rem;" onclick="navegarA('${modulo}')">
+      <div style="width:52px; height:52px; border-radius:14px; background:${bg}; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;">${iconos[icon]}</svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-size:1.85rem; font-weight:700; color:var(--texto); line-height:1;">${valor}</div>
+        <div style="font-size:0.8rem; color:var(--texto-sub); margin-top:0.25rem;">${label}</div>
+      </div>
+      <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" style="width:18px;height:18px;opacity:0.5;"><polyline points="9 18 15 12 9 6"/></svg>
+    </div>`;
+}
+
+function leyendaOcupacion(label, valor, total, color) {
+  const pct = total > 0 ? Math.round((valor/total)*100) : 0;
+  return `
+    <div style="display:flex; align-items:center; gap:0.6rem; padding:0.3rem 0;">
+      <span style="width:10px; height:10px; border-radius:50%; background:${color}; flex-shrink:0;"></span>
+      <span style="flex:1; font-size:0.85rem; color:var(--texto-sub);">${label}</span>
+      <span style="font-weight:700; font-size:0.9rem;">${valor}</span>
+      <span style="font-size:0.78rem; color:var(--texto-sub); width:38px; text-align:right;">${pct}%</span>
+    </div>`;
+}
+
+function filaPersona(huesped, habNum, tiempo, estado) {
+  const nombre = huesped ? `${huesped.nombres||''} ${huesped.apellidos||''}`.trim() : 'Huésped';
+  const iniciales = nombre.split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase() || 'H';
+  return `
+    <div style="display:flex; align-items:center; gap:0.75rem; padding:0.6rem 0; border-bottom:1px solid var(--gris-borde);">
+      <div style="width:38px; height:38px; border-radius:10px; background:rgba(37,99,235,0.1); color:var(--azul); font-weight:700; font-size:0.8rem; display:flex; align-items:center; justify-content:center; flex-shrink:0;">${iniciales}</div>
+      <div style="flex:1; min-width:0;">
+        <div style="font-weight:600; font-size:0.85rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(nombre)}</div>
+        <div style="font-size:0.75rem; color:var(--texto-sub);">Habitación ${escapeHtml(habNum||'—')}</div>
+      </div>
+      <div style="font-size:0.78rem; color:var(--texto-sub); white-space:nowrap;">${tiempo}</div>
+      <span style="font-size:0.68rem; font-weight:700; color:${estado[1]}; background:${estado[2]}; padding:0.2rem 0.6rem; border-radius:999px; white-space:nowrap;">${estado[0]}</span>
+    </div>`;
+}
+
+function filaVacia(msg) {
+  return `<div style="text-align:center; color:var(--texto-sub); font-size:0.83rem; padding:1.5rem 0;">${msg}</div>`;
 }
 
 function estadoTarjeta(label, valor, color) {

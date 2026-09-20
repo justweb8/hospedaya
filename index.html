@@ -32,18 +32,26 @@
   <style>
     /* ── Variables de diseño ─────────────────────────── */
     :root {
-      --azul:       #1A3FA6;
-      --azul-hover: #1533882;
-      --azul-dark:  #0F2766;
+      --azul:       #2563EB;
+      --azul-hover: #1D4ED8;
+      --azul-dark:  #1E3A8A;
       --dorado:     #C9A84C;
       --dorado-claro:#E8C97A;
       --gris-bg:    #F5F7FA;
-      --gris-borde: #E2E6EE;
+      --gris-borde: #E7EBF2;
       --texto:      #1C2B4A;
       --texto-sub:  #64748B;
       --verde:      #16A34A;
       --rojo:       #DC2626;
       --naranja:    #EA580C;
+      /* Sidebar oscuro (navy) */
+      --nav-bg:     #0F1E3D;
+      --nav-bg2:    #0B1730;
+      --nav-item:   #94A6C4;
+      --nav-item-hover: #C7D3E8;
+      --nav-activo-bg: #2563EB;
+      --nav-activo-tx: #FFFFFF;
+      --nav-sep:    rgba(255,255,255,0.08);
     }
 
     * { box-sizing: border-box; }
@@ -357,113 +365,191 @@
       min-height: 100vh;
     }
 
-    /* Topbar */
-    #topbar {
-      background: white;
-      border-bottom: 1px solid var(--gris-borde);
-      padding: 0 1.5rem;
-      height: 60px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 50;
-    }
-
-    .topbar-logo {
-      font-size: 1.2rem;
-      font-weight: 700;
-      color: var(--texto);
-    }
-    .topbar-logo span { color: var(--azul); }
-
-    .topbar-right {
-      display: flex;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    .topbar-hotel {
-      font-size: 0.8rem;
-      color: var(--texto-sub);
-      max-width: 180px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .topbar-rol-badge {
-      font-size: 0.7rem;
-      font-weight: 600;
-      padding: 0.2rem 0.6rem;
-      border-radius: 999px;
-      background: rgba(26,63,166,0.1);
-      color: var(--azul);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .btn-salir {
-      font-size: 0.8rem;
-      color: var(--texto-sub);
-      background: none;
-      border: 1px solid var(--gris-borde);
-      border-radius: 8px;
-      padding: 0.35rem 0.75rem;
-      cursor: pointer;
-      transition: background 0.15s;
-    }
-    .btn-salir:hover { background: var(--gris-bg); }
-
-    /* Layout principal con sidebar */
+    /* ── LAYOUT PRINCIPAL ─────────────────────────────── */
     #app-body {
       display: flex;
-      flex: 1;
+      min-height: 100vh;
     }
 
-    /* Sidebar nav */
-    #sidebar {
-      width: 220px;
-      background: white;
-      border-right: 1px solid var(--gris-borde);
-      padding: 1.25rem 0.75rem;
-      flex-shrink: 0;
+    #area-derecha {
+      flex: 1;
+      min-width: 0;
       display: flex;
       flex-direction: column;
-      gap: 0.25rem;
-      min-height: calc(100vh - 60px);
+    }
+
+    /* ── SIDEBAR OSCURO ───────────────────────────────── */
+    #sidebar-wrap {
+      width: 256px;
+      flex-shrink: 0;
+      background: linear-gradient(180deg, var(--nav-bg) 0%, var(--nav-bg2) 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 1.25rem 0.85rem;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.35rem 0.5rem 1.25rem;
+      margin-bottom: 0.75rem;
+      border-bottom: 1px solid var(--nav-sep);
+    }
+    .sidebar-brand-icon {
+      width: 42px; height: 42px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--azul), #4F86F7);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 16px rgba(37,99,235,0.4);
+    }
+    .sidebar-brand-icon svg { width: 24px; height: 24px; }
+    .sidebar-brand-name {
+      font-size: 1.2rem; font-weight: 700; color: white; line-height: 1.1;
+    }
+    .sidebar-brand-name span { color: #6BA3FF; }
+    .sidebar-brand-sub {
+      font-size: 0.62rem; color: var(--nav-item); margin-top: 2px;
+    }
+
+    #sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      flex: 1;
     }
 
     .nav-item {
       display: flex;
       align-items: center;
-      gap: 0.65rem;
-      padding: 0.6rem 0.85rem;
-      border-radius: 9px;
-      font-size: 0.85rem;
+      gap: 0.75rem;
+      padding: 0.7rem 0.85rem;
+      border-radius: 11px;
+      font-size: 0.875rem;
       font-weight: 500;
-      color: var(--texto-sub);
+      color: var(--nav-item);
       cursor: pointer;
       transition: background 0.15s, color 0.15s;
       border: none;
       background: none;
       width: 100%;
       text-align: left;
+      line-height: 1.2;
     }
-    .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
-    .nav-item:hover { background: var(--gris-bg); color: var(--texto); }
+    .nav-item svg { width: 19px; height: 19px; flex-shrink: 0; }
+    .nav-item:hover { background: rgba(255,255,255,0.06); color: var(--nav-item-hover); }
     .nav-item.activo {
-      background: rgba(26,63,166,0.08);
-      color: var(--azul);
+      background: var(--nav-activo-bg);
+      color: var(--nav-activo-tx);
       font-weight: 600;
+      box-shadow: 0 6px 16px rgba(37,99,235,0.35);
     }
 
     .nav-separador {
       height: 1px;
-      background: var(--gris-borde);
-      margin: 0.5rem 0;
+      background: var(--nav-sep);
+      margin: 0.6rem 0.5rem;
     }
+
+    .sidebar-ayuda {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      margin-top: 0.75rem;
+      padding: 0.85rem;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--nav-sep);
+      border-radius: 12px;
+      color: var(--nav-item-hover);
+      text-decoration: none;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+    .sidebar-ayuda:hover { background: rgba(255,255,255,0.09); }
+    .sidebar-ayuda svg { width: 20px; height: 20px; flex-shrink: 0; color: #6BA3FF; }
+
+    /* ── TOPBAR ───────────────────────────────────────── */
+    #topbar {
+      background: white;
+      border-bottom: 1px solid var(--gris-borde);
+      padding: 0 1.5rem;
+      height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .topbar-search {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      background: var(--gris-bg);
+      border: 1px solid var(--gris-borde);
+      border-radius: 11px;
+      padding: 0.6rem 1rem;
+      width: 100%;
+      max-width: 440px;
+    }
+    .topbar-search svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .topbar-search input {
+      border: none; background: none; outline: none;
+      font-size: 0.88rem; color: var(--texto); width: 100%;
+      font-family: inherit;
+    }
+
+    .topbar-right { display: flex; align-items: center; gap: 1rem; }
+
+    .topbar-bell {
+      position: relative;
+      background: var(--gris-bg);
+      border: 1px solid var(--gris-borde);
+      border-radius: 10px;
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--texto-sub);
+    }
+    .topbar-bell svg { width: 19px; height: 19px; }
+    .bell-dot {
+      position: absolute; top: 8px; right: 9px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--rojo); border: 2px solid white;
+    }
+
+    .topbar-user {
+      display: flex; align-items: center; gap: 0.65rem;
+      background: var(--gris-bg);
+      border: 1px solid var(--gris-borde);
+      border-radius: 12px;
+      padding: 0.35rem 0.5rem 0.35rem 0.4rem;
+    }
+    .topbar-avatar {
+      width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--azul), #4F86F7);
+      color: white; font-weight: 700; font-size: 0.85rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .topbar-user-info { line-height: 1.2; }
+    .topbar-user-name {
+      font-size: 0.82rem; font-weight: 600; color: var(--texto);
+      max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .topbar-user-rol {
+      font-size: 0.68rem; color: var(--texto-sub); text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .btn-salir {
+      background: none; border: none; cursor: pointer;
+      color: var(--texto-sub); padding: 0.4rem; border-radius: 8px;
+      display: flex; align-items: center;
+    }
+    .btn-salir:hover { background: rgba(0,0,0,0.05); color: var(--rojo); }
 
     /* Contenido principal */
     #contenido {
@@ -692,8 +778,15 @@
     .card {
       background: white;
       border: 1px solid var(--gris-borde);
-      border-radius: 14px;
+      border-radius: 16px;
       padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(15,30,61,0.04), 0 1px 2px rgba(15,30,61,0.03);
+    }
+    #contenido { background: var(--gris-bg); }
+
+    /* Dashboard responsive: apilar ocupación/turno en pantallas medianas */
+    @media (max-width: 900px) {
+      .dash-fila { grid-template-columns: 1fr !important; }
     }
 
     .badge-plan {
@@ -717,8 +810,9 @@
       .login-banner-overlay { padding: 2.25rem 2.25rem; }
       .banner-features { margin-top: 1.75rem; gap: 0.75rem; }
       .login-form-panel { max-width: 440px; padding: 2.5rem 2.5rem; }
-      #sidebar { width: 190px; }
+      #sidebar-wrap { width: 220px; }
       #contenido { padding: 1.35rem; }
+      .topbar-search { max-width: 300px; }
     }
 
     /* ── TABLET vertical / móvil (≤900px): login apilado ─ */
@@ -763,10 +857,10 @@
       .logo-nombre { font-size: 1.5rem; }
 
       /* App: topbar compacto */
-      #topbar { padding: 0 0.9rem; height: 54px; }
-      .topbar-logo { font-size: 1.05rem; }
-      .topbar-hotel { display: none; }
-      .topbar-rol-badge { font-size: 0.62rem; padding: 0.15rem 0.5rem; }
+      #topbar { padding: 0 0.9rem; height: 60px; gap: 0.5rem; }
+      .topbar-search { max-width: none; padding: 0.5rem 0.75rem; }
+      .topbar-user-info { display: none; }
+      .topbar-bell { display: none; }
 
       #contenido { padding: 1rem; }
       .card { padding: 1.15rem; }
@@ -775,7 +869,7 @@
       /* Banner de vencimiento en columna */
       #banner-vencimiento {
         flex-wrap: wrap;
-        top: 54px;
+        top: 60px;
         padding: 0.65rem 0.9rem;
         font-size: 0.78rem;
       }
@@ -796,38 +890,40 @@
     @media (max-width: 768px) {
       #app-body { flex-direction: column; }
 
-      #sidebar {
+      #sidebar-wrap {
         width: 100%;
-        min-height: auto;
+        height: auto;
+        position: fixed;
+        bottom: 0; left: 0;
+        z-index: 60;
+        padding: 0.4rem 0.4rem;
         flex-direction: row;
         overflow-x: auto;
-        border-right: none;
-        border-top: 1px solid var(--gris-borde);
-        padding: 0.5rem 0.5rem;
-        gap: 0.35rem;
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        z-index: 60;
-        background: white;
-        box-shadow: 0 -4px 20px rgba(0,0,0,0.06);
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
         -webkit-overflow-scrolling: touch;
       }
-      /* ocultar scrollbar horizontal */
-      #sidebar::-webkit-scrollbar { display: none; }
-      #sidebar { scrollbar-width: none; }
+      .sidebar-brand, .sidebar-ayuda { display: none; }
+      #sidebar-wrap::-webkit-scrollbar { display: none; }
+      #sidebar-wrap { scrollbar-width: none; }
+
+      #sidebar {
+        flex-direction: row;
+        gap: 0.25rem;
+        flex: 1;
+      }
 
       .nav-item {
         flex-direction: column;
         gap: 0.2rem;
         padding: 0.5rem 0.65rem;
-        font-size: 0.65rem;
+        font-size: 0.62rem;
         white-space: nowrap;
-        min-width: 68px;
+        min-width: 66px;
         text-align: center;
         align-items: center;
       }
       .nav-item svg { width: 20px; height: 20px; }
+      .nav-item.activo { box-shadow: none; }
       .nav-separador { display: none; }
 
       /* dejar espacio para la barra inferior fija */
@@ -984,43 +1080,90 @@
      ╚══════════════════════════════════════════════════╝ -->
 <div id="vista-app">
 
-  <!-- Topbar -->
-  <div id="topbar">
-    <div class="topbar-logo">Hospeda<span>Ya</span></div>
-    <div class="topbar-right">
-      <div class="topbar-hotel" id="topbar-hotel-nombre">—</div>
-      <div class="topbar-rol-badge" id="topbar-rol">—</div>
-      <button class="btn-salir" id="btn-salir">Salir</button>
-    </div>
-  </div>
-
-  <!-- Banner advertencia vencimiento (≤5 días) -->
-  <div id="banner-vencimiento">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-      <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-    </svg>
-    <span id="banner-venc-texto">Tu suscripción vence pronto.</span>
-    <a id="btn-wa-renovar" class="btn-wa" target="_blank" rel="noopener">
-      <svg viewBox="0 0 24 24" fill="white" style="width:15px;height:15px">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-        <path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/>
-      </svg>
-      Renovar ahora
-    </a>
-  </div>
-
-  <!-- Cuerpo principal -->
+  <!-- Cuerpo principal: sidebar + área derecha -->
   <div id="app-body">
-    <!-- Sidebar -->
-    <nav id="sidebar"></nav>
 
-    <!-- Contenido dinámico -->
-    <main id="contenido">
-      <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--texto-sub);font-size:0.9rem;">
-        Cargando módulo…
+    <!-- Sidebar oscuro -->
+    <aside id="sidebar-wrap">
+      <div class="sidebar-brand">
+        <div class="sidebar-brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>
+          </svg>
+        </div>
+        <div>
+          <div class="sidebar-brand-name">Hospeda<span>Ya</span></div>
+          <div class="sidebar-brand-sub">Sistema de Gestión Hotelera</div>
+        </div>
       </div>
-    </main>
+      <nav id="sidebar"></nav>
+      <a class="sidebar-ayuda" href="#" onclick="return false;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+        </svg>
+        <div>
+          <div style="font-weight:600;">¿Necesitas ayuda?</div>
+          <div style="font-size:0.72rem; opacity:0.7;">Contáctanos</div>
+        </div>
+      </a>
+    </aside>
+
+    <!-- Área derecha: topbar + banner + contenido -->
+    <div id="area-derecha">
+
+      <!-- Topbar -->
+      <div id="topbar">
+        <div class="topbar-search">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" placeholder="Buscar huésped, reserva o habitación…" id="topbar-buscar">
+        </div>
+        <div class="topbar-right">
+          <button class="topbar-bell" title="Notificaciones">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            <span class="bell-dot"></span>
+          </button>
+          <div class="topbar-user">
+            <div class="topbar-avatar" id="topbar-avatar">LN</div>
+            <div class="topbar-user-info">
+              <div class="topbar-user-name" id="topbar-hotel-nombre">—</div>
+              <div class="topbar-user-rol" id="topbar-rol">—</div>
+            </div>
+            <button class="btn-salir" id="btn-salir" title="Cerrar sesión">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Banner advertencia vencimiento (≤5 días) -->
+      <div id="banner-vencimiento">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span id="banner-venc-texto">Tu suscripción vence pronto.</span>
+        <a id="btn-wa-renovar" class="btn-wa" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="white" style="width:15px;height:15px">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+            <path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/>
+          </svg>
+          Renovar ahora
+        </a>
+      </div>
+
+      <!-- Contenido dinámico -->
+      <main id="contenido">
+        <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--texto-sub);font-size:0.9rem;">
+          Cargando módulo…
+        </div>
+      </main>
+    </div>
   </div>
 </div>
 
@@ -1346,10 +1489,14 @@ db.auth.onAuthStateChange(async (event, session) => {
     }
 
     // Topbar
-    document.getElementById('topbar-hotel-nombre').textContent =
-      SESSION.hotel ? SESSION.hotel.nombre_comercial : (SESSION.perfil.es_superadmin ? 'SuperAdmin' : '—');
+    const nombreMostrar = SESSION.hotel ? SESSION.hotel.nombre_comercial : (SESSION.perfil.es_superadmin ? 'SuperAdmin' : '—');
+    document.getElementById('topbar-hotel-nombre').textContent = nombreMostrar;
     document.getElementById('topbar-rol').textContent =
       SESSION.perfil.es_superadmin ? 'SuperAdmin' : SESSION.perfil.rol;
+    // Iniciales para el avatar
+    const iniciales = nombreMostrar.trim().split(/\s+/).slice(0,2).map(p => p[0] || '').join('').toUpperCase() || 'HY';
+    const avatarEl = document.getElementById('topbar-avatar');
+    if (avatarEl) avatarEl.textContent = iniciales;
 
     // Construir sidebar
     buildSidebar(SESSION.perfil.rol, SESSION.perfil.es_superadmin);
