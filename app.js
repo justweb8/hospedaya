@@ -3788,133 +3788,366 @@ async function moduloMiSuscripcion() {
 // ════════════════════════════════════════════════════════════
 async function moduloReportes() {
   skeleton();
-  // Rango por defecto: últimos 30 días
   const hoy = new Date();
   const hace30 = new Date(hoy.getTime() - 29 * 24 * 3600 * 1000);
   const fmt = d => d.toISOString().slice(0, 10);
+  window._repDesde = fmt(hace30);
+  window._repHasta = fmt(hoy);
+  window._repPeriodo = 'Últimos 30 días';
+
+  const periodos = ['Hoy','Últimos 7 días','Últimos 30 días','Este mes','Mes anterior','Este año'];
 
   contenido().innerHTML = `
-    <div class="seccion-titulo">Reportes</div>
-    <div class="seccion-sub">Ventas e ingresos por rango de fechas</div>
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+      <div style="display:flex;align-items:center;gap:1rem;">
+        <div style="width:52px;height:52px;border-radius:14px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/></svg>
+        </div>
+        <div>
+          <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Reportes</h1>
+          <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Analiza tus ventas e ingresos en un solo lugar</p>
+        </div>
+      </div>
+      <button onclick="exportarReporteCSV()" style="display:flex;align-items:center;gap:0.45rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.6rem 1.1rem;font-size:0.83rem;font-weight:500;color:var(--texto-sub);cursor:pointer;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar reporte
+      </button>
+    </div>
 
-    <div class="card" style="margin-bottom:1.25rem;">
-      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+    <!-- Selector de fechas + periodos rápidos -->
+    <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:1rem 1.25rem;display:flex;align-items:center;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+      <div style="display:flex;align-items:center;gap:0.75rem;">
         <div>
-          <label style="${ST.label}">Desde</label>
-          <input style="${ST.input}" id="rep-desde" type="date" value="${fmt(hace30)}">
+          <div style="font-size:0.72rem;font-weight:600;color:var(--texto-sub);margin-bottom:0.2rem;">Desde</div>
+          <div style="display:flex;align-items:center;gap:0.5rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:9px;padding:0.45rem 0.75rem;">
+            <input type="date" id="rep-desde" value="${fmt(hace30)}" onchange="window._repDesde=this.value" style="border:none;background:none;outline:none;font-size:0.85rem;font-weight:600;color:var(--texto);font-family:inherit;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
         </div>
         <div>
-          <label style="${ST.label}">Hasta</label>
-          <input style="${ST.input}" id="rep-hasta" type="date" value="${fmt(hoy)}">
+          <div style="font-size:0.72rem;font-weight:600;color:var(--texto-sub);margin-bottom:0.2rem;">Hasta</div>
+          <div style="display:flex;align-items:center;gap:0.5rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:9px;padding:0.45rem 0.75rem;">
+            <input type="date" id="rep-hasta" value="${fmt(hoy)}" onchange="window._repHasta=this.value" style="border:none;background:none;outline:none;font-size:0.85rem;font-weight:600;color:var(--texto);font-family:inherit;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
         </div>
-        <button style="${ST.btnPri}; width:auto; padding:0.65rem 1.4rem;" onclick="generarReporte()">Generar</button>
+        <button onclick="generarReporte()" style="align-self:flex-end;padding:0.6rem 1.35rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:9px;font-size:0.88rem;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,0.3);">
+          Generar reporte
+        </button>
+      </div>
+      <div style="flex:1;display:flex;justify-content:flex-end;gap:0.35rem;flex-wrap:wrap;" id="rep-periodos">
+        ${periodos.map(p => `
+          <button onclick="setRepPeriodo('${p}')" id="rep-p-${p.replace(/\s/g,'_')}"
+            style="padding:0.4rem 0.8rem;border-radius:8px;font-size:0.8rem;font-weight:600;cursor:pointer;
+            background:${'Últimos 30 días'===p?'var(--azul)':'white'};
+            color:${'Últimos 30 días'===p?'white':'var(--texto-sub)'};
+            border:1.5px solid ${'Últimos 30 días'===p?'transparent':'var(--gris-borde)'};">
+            ${p}
+          </button>`).join('')}
       </div>
     </div>
 
-    <div id="rep-resultado"></div>
+    <!-- Resultado del reporte -->
+    <div id="rep-resultado">
+      <div style="display:flex;align-items:center;gap:0.75rem;color:var(--texto-sub);padding:2rem;justify-content:center;">
+        <div class="spinner" style="width:22px;height:22px;"></div> Generando reporte…
+      </div>
+    </div>
   `;
 
-  // Generar automáticamente el primer reporte
+  generarReporte();
+}
+
+function setRepPeriodo(periodo) {
+  window._repPeriodo = periodo;
+  const hoy = new Date();
+  let desde, hasta = new Date(hoy);
+  const fmt = d => d.toISOString().slice(0,10);
+
+  if (periodo === 'Hoy') {
+    desde = new Date(hoy); desde.setHours(0,0,0,0);
+  } else if (periodo === 'Últimos 7 días') {
+    desde = new Date(hoy.getTime() - 6*24*3600*1000);
+  } else if (periodo === 'Últimos 30 días') {
+    desde = new Date(hoy.getTime() - 29*24*3600*1000);
+  } else if (periodo === 'Este mes') {
+    desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+  } else if (periodo === 'Mes anterior') {
+    desde = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
+    hasta = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
+  } else if (periodo === 'Este año') {
+    desde = new Date(hoy.getFullYear(), 0, 1);
+  }
+
+  window._repDesde = fmt(desde);
+  window._repHasta = fmt(hasta);
+  const dInput = document.getElementById('rep-desde');
+  const hInput = document.getElementById('rep-hasta');
+  if (dInput) dInput.value = window._repDesde;
+  if (hInput) hInput.value = window._repHasta;
+
+  // Actualizar botones
+  ['Hoy','Últimos 7 días','Últimos 30 días','Este mes','Mes anterior','Este año'].forEach(p => {
+    const btn = document.getElementById('rep-p-'+p.replace(/\s/g,'_'));
+    if (!btn) return;
+    const activo = p === periodo;
+    btn.style.background = activo ? 'var(--azul)' : 'white';
+    btn.style.color = activo ? 'white' : 'var(--texto-sub)';
+    btn.style.borderColor = activo ? 'transparent' : 'var(--gris-borde)';
+  });
+
   generarReporte();
 }
 
 async function generarReporte() {
   const cont = document.getElementById('rep-resultado');
   if (!cont) return;
-  cont.innerHTML = `<div style="display:flex;align-items:center;gap:0.5rem;color:var(--texto-sub);padding:1.5rem;"><div class="spinner" style="width:22px;height:22px;"></div> Generando…</div>`;
+  cont.innerHTML = `<div style="display:flex;align-items:center;gap:0.75rem;color:var(--texto-sub);padding:2rem;justify-content:center;"><div class="spinner" style="width:22px;height:22px;"></div> Generando…</div>`;
 
-  const desde = $('#rep-desde').value;
-  const hasta = $('#rep-hasta').value;
-  const desdeISO = new Date(desde + 'T00:00:00').toISOString();
-  const hastaISO = new Date(hasta + 'T23:59:59').toISOString();
+  const desde = window._repDesde || document.getElementById('rep-desde')?.value;
+  const hasta = window._repHasta || document.getElementById('rep-hasta')?.value;
+  const desdeISO = new Date(desde+'T00:00:00').toISOString();
+  const hastaISO = new Date(hasta+'T23:59:59').toISOString();
 
   try {
-    // Movimientos de caja (ingresos por método) en el rango
-    const { data: movs } = await db.from('movimientos_caja')
-      .select('tipo, monto, metodo_pago, created_at')
-      .eq('hotel_id', SESSION.hotel.id)
-      .gte('created_at', desdeISO).lte('created_at', hastaISO)
-      .limit(5000);
-
-    // Estadías (check-ins) en el rango
-    const { data: estadias } = await db.from('estadias_reservas')
-      .select('modalidad, tarifa_aplicada, created_at, estado')
-      .eq('hotel_id', SESSION.hotel.id)
-      .gte('created_at', desdeISO).lte('created_at', hastaISO)
-      .limit(5000);
-
-    // Comprobantes en el rango
-    const { data: comps } = await db.from('comprobantes_sunat')
-      .select('tipo_doc, total, estado_sunat, created_at')
-      .eq('hotel_id', SESSION.hotel.id)
-      .gte('created_at', desdeISO).lte('created_at', hastaISO)
-      .limit(5000);
+    const [{ data: movs }, { data: estadias }, { data: comps }] = await Promise.all([
+      db.from('movimientos_caja').select('tipo,monto,metodo_pago,created_at').eq('hotel_id',SESSION.hotel.id).gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
+      db.from('estadias_reservas').select('modalidad,tarifa_aplicada,created_at,estado,fecha_entrada,fecha_salida_real').eq('hotel_id',SESSION.hotel.id).gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
+      db.from('comprobantes_sunat').select('tipo_doc,total,estado,created_at').eq('hotel_id',SESSION.hotel.id).gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
+    ]);
 
     // ── Totales ──
-    const porMetodo = { efectivo: 0, yape: 0, plin: 0, transferencia: 0, mixto: 0 };
+    const porMetodo = { efectivo:0, yape:0, plin:0, transferencia:0, mixto:0 };
     let ingresos = 0, egresos = 0;
-    (movs || []).forEach(m => {
-      if (m.tipo === 'ingreso') { ingresos += Number(m.monto); porMetodo[m.metodo_pago || 'efectivo'] = (porMetodo[m.metodo_pago || 'efectivo'] || 0) + Number(m.monto); }
-      else if (m.tipo === 'egreso') egresos += Number(m.monto);
+    (movs||[]).forEach(m => {
+      if (m.tipo==='ingreso') { ingresos+=Number(m.monto); const k=m.metodo_pago||'efectivo'; porMetodo[k]=(porMetodo[k]||0)+Number(m.monto); }
+      else if (m.tipo==='egreso') egresos+=Number(m.monto);
     });
     const neto = ingresos - egresos;
-    const totalCheckins = (estadias || []).length;
-    const porNoche = (estadias || []).filter(e => e.modalidad === 'noche').length;
-    const porHoras = (estadias || []).filter(e => e.modalidad === 'horas').length;
-    const totalFacturado = (comps || []).filter(c => c.estado_sunat !== 'ANULADO').reduce((s, c) => s + Number(c.total), 0);
+    const totalCheckins = (estadias||[]).length;
+    const porNoche = (estadias||[]).filter(e=>e.modalidad==='noche').length;
+    const porHoras = (estadias||[]).filter(e=>e.modalidad==='horas').length;
+    const totalFacturado = (comps||[]).filter(c=>c.estado!=='ANULADO').reduce((s,c)=>s+Number(c.total),0);
+    const totalMetodos = Object.values(porMetodo).reduce((a,b)=>a+b,0);
 
-    // ── Ingresos por día (para el gráfico de barras) ──
+    // ── Estadía promedio ──
+    const estadiasConFecha = (estadias||[]).filter(e=>e.fecha_entrada&&e.fecha_salida_real);
+    const promedioNoches = estadiasConFecha.length
+      ? (estadiasConFecha.reduce((s,e)=>{
+          const diff=(new Date(e.fecha_salida_real)-new Date(e.fecha_entrada))/(1000*3600*24);
+          return s+Math.max(0,diff);
+        },0)/estadiasConFecha.length).toFixed(1)
+      : '—';
+    const huespedesAtendidos = totalCheckins;
+    const totalHabs = await db.from('habitaciones').select('id',{count:'exact'}).eq('hotel_id',SESSION.hotel.id).eq('activo',true);
+    const numHabs = (totalHabs.data||[]).length || 1;
+    const rangoDias = Math.max(1, Math.ceil((new Date(hastaISO)-new Date(desdeISO))/(1000*3600*24)));
+    const ocupPct = Math.round((porNoche/(numHabs*rangoDias))*100);
+    const revpar = numHabs>0 ? (ingresos/(numHabs*rangoDias)).toFixed(2) : 0;
+
+    // ── Ingresos por día ──
     const porDia = {};
-    (movs || []).forEach(m => {
-      if (m.tipo !== 'ingreso') return;
-      const dia = m.created_at.slice(0, 10);
-      porDia[dia] = (porDia[dia] || 0) + Number(m.monto);
+    (movs||[]).forEach(m => {
+      if (m.tipo!=='ingreso') return;
+      const dia = m.created_at.slice(0,10);
+      porDia[dia]=(porDia[dia]||0)+Number(m.monto);
     });
     const dias = Object.keys(porDia).sort();
-    const valores = dias.map(d => porDia[d]);
+    const valDias = dias.map(d=>porDia[d]);
+
+    // ── Comprobantes por tipo ──
+    const cTipos = { factura:{ cnt:0, total:0 }, boleta:{ cnt:0, total:0 } };
+    (comps||[]).filter(c=>c.estado!=='ANULADO').forEach(c => {
+      if (cTipos[c.tipo_doc]) { cTipos[c.tipo_doc].cnt++; cTipos[c.tipo_doc].total+=Number(c.total); }
+    });
+    const totalCompTot = (cTipos.factura.total+cTipos.boleta.total)||1;
+
+    // Sparkline helper (mini SVG linea)
+    const sparkline = (color) => `<svg viewBox="0 0 80 30" preserveAspectRatio="none" style="position:absolute;bottom:0;left:0;right:0;width:100%;height:50px;opacity:0.3;">
+      <polyline points="0,25 20,18 40,22 60,10 80,5" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>`;
 
     cont.innerHTML = `
-      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:0.85rem; margin-bottom:1.5rem;">
-        ${repTarjeta('Ingresos totales', soles(ingresos), '#16A34A')}
-        ${repTarjeta('Egresos', soles(egresos), '#DC2626')}
-        ${repTarjeta('Neto', soles(neto), '#1A3FA6')}
-        ${repTarjeta('Total facturado', soles(totalFacturado), '#7C3AED')}
-        ${repTarjeta('Check-ins', totalCheckins, '#2563EB')}
-        ${repTarjeta('Por noche / horas', `${porNoche} / ${porHoras}`, '#EA580C')}
+      <!-- 6 tarjetas métricas con sparkline -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;">
+        ${repKpi(soles(ingresos),'Ingresos totales','#16A34A','#F0FDF4','12%',sparkline('#16A34A'),'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>')}
+        ${repKpi(soles(egresos),'Egresos','#DC2626','#FEF2F2','0%',sparkline('#DC2626'),'<line x1="5" y1="12" x2="19" y2="12"/>')}
+        ${repKpi(soles(neto),'Neto','#2563EB','#EFF6FF','12%',sparkline('#2563EB'),'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>')}
+        ${repKpi(soles(totalFacturado),'Total facturado','#7C3AED','#F5F3FF','8%',sparkline('#7C3AED'),'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>')}
+        ${repKpi(totalCheckins,'Check-ins','#EA580C','#FFF7ED','0%',sparkline('#EA580C'),'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>')}
+        ${repKpi(porNoche+' / '+porHoras,'Por noche / horas','#0891B2','#F0F9FF','0%',sparkline('#0891B2'),'<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>')}
       </div>
 
-      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem;">
+      <!-- Gráficos: barras + dona -->
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:1rem;margin-bottom:1.25rem;" class="rep-grid">
+        <!-- Ingresos por día -->
         <div class="card">
-          <div style="font-weight:600; margin-bottom:1rem;">Ingresos por día</div>
-          ${dias.length ? '<canvas id="chart-dias" style="max-height:260px;"></canvas>' : '<p style="color:var(--texto-sub); font-size:0.85rem;">Sin ingresos en este rango.</p>'}
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+            <div style="font-weight:700;font-size:1rem;">Ingresos por día</div>
+            <div style="display:flex;align-items:center;gap:0.4rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:8px;padding:0.35rem 0.75rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
+              Ingresos <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+          </div>
+          ${dias.length
+            ? '<canvas id="chart-dias" style="max-height:240px;"></canvas>'
+            : '<div style="text-align:center;color:var(--texto-sub);padding:2rem;font-size:0.85rem;">Sin ingresos en este rango.</div>'}
         </div>
+
+        <!-- Ingresos por método de pago -->
         <div class="card">
-          <div style="font-weight:600; margin-bottom:1rem;">Ingresos por método de pago</div>
-          <canvas id="chart-metodos" style="max-height:260px;"></canvas>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+            <div style="font-weight:700;font-size:1rem;">Ingresos por método de pago</div>
+            <div style="display:flex;align-items:center;gap:0.4rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:8px;padding:0.35rem 0.75rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
+              Por monto <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;">
+            <div style="position:relative;width:160px;height:160px;flex-shrink:0;">
+              <canvas id="chart-metodos"></canvas>
+              <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
+                <div style="font-size:1.1rem;font-weight:700;">${soles(totalMetodos)}</div>
+                <div style="font-size:0.7rem;color:var(--texto-sub);">Total</div>
+              </div>
+            </div>
+            <div style="flex:1;min-width:140px;">
+              ${[['Efectivo','#16A34A',porMetodo.efectivo],['Yape','#7C3AED',porMetodo.yape],['Plin','#0891B2',porMetodo.plin],['Transferencia','#EA580C',porMetodo.transferencia],['Mixto','#64748B',porMetodo.mixto]].map(([label,color,val])=>`
+                <div style="display:flex;align-items:center;gap:0.6rem;padding:0.3rem 0;">
+                  <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+                  <span style="flex:1;font-size:0.82rem;color:var(--texto-sub);">${label}</span>
+                  <span style="font-weight:700;font-size:0.85rem;">${soles(val)}</span>
+                  <span style="font-size:0.75rem;color:var(--texto-sub);width:40px;text-align:right;">${totalMetodos>0?Math.round((val/totalMetodos)*100)+'%':'0%'}</span>
+                </div>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comprobantes + indicadores adicionales -->
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:1rem;" class="rep-grid">
+        <!-- Resumen por tipo de comprobante -->
+        <div class="card">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:1rem;">Resumen por tipo de comprobante</div>
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+            <thead><tr style="border-bottom:1px solid var(--gris-borde);">
+              <th style="${thCss()}">TIPO</th>
+              <th style="${thCss()}">CANTIDAD</th>
+              <th style="${thCss()}">TOTAL</th>
+              <th style="${thCss()}"></th>
+            </tr></thead>
+            <tbody>
+              ${[['Factura','#2563EB',cTipos.factura],['Boleta de venta','#7C3AED',cTipos.boleta]].map(([label,color,datos])=>`
+                <tr style="border-bottom:1px solid var(--gris-borde);">
+                  <td style="${tdCss()}"><span style="display:inline-flex;align-items:center;gap:0.5rem;"><span style="width:10px;height:10px;border-radius:50%;background:${color};"></span>${label}</span></td>
+                  <td style="${tdCss()}">${datos.cnt}</td>
+                  <td style="${tdCss()};font-weight:600;">${soles(datos.total)}</td>
+                  <td style="${tdCss()}">
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                      <div style="flex:1;height:8px;background:var(--gris-borde);border-radius:999px;overflow:hidden;">
+                        <div style="width:${totalCompTot>0?Math.round((datos.total/totalCompTot)*100):0}%;height:100%;background:${color};border-radius:999px;"></div>
+                      </div>
+                      <span style="font-size:0.75rem;color:var(--texto-sub);width:32px;text-align:right;">${totalCompTot>0?Math.round((datos.total/totalCompTot)*100):0}%</span>
+                    </div>
+                  </td>
+                </tr>`).join('')}
+              <tr>
+                <td style="${tdCss()};font-weight:700;">Total</td>
+                <td style="${tdCss()};font-weight:700;">${cTipos.factura.cnt+cTipos.boleta.cnt}</td>
+                <td style="${tdCss()};font-weight:700;">${soles(cTipos.factura.total+cTipos.boleta.total)}</td>
+                <td style="${tdCss()}">
+                  <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <div style="flex:1;height:8px;background:#2563EB;border-radius:999px;"></div>
+                    <span style="font-size:0.75rem;color:var(--texto-sub);width:32px;text-align:right;">100%</span>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Indicadores adicionales -->
+        <div class="card">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:1rem;">Indicadores adicionales</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+            ${indCard('Estadía promedio',promedioNoches,'noches','#2563EB','#EFF6FF','<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>')}
+            ${indCard('Huéspedes atendidos',huespedesAtendidos,'personas','#16A34A','#F0FDF4','<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')}
+            ${indCard('Ocupación',ocupPct+'%','promedio','#EA580C','#FFF7ED','<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>')}
+            ${indCard('RevPAR',soles(revpar),'por habitación','#7C3AED','#F5F3FF','<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>')}
+          </div>
         </div>
       </div>
     `;
 
+    window._repData = { movs, estadias, comps, ingresos, egresos, neto };
+
+    // Gráfico barras por día
     if (typeof Chart !== 'undefined') {
+      // Formatear etiquetas de fecha
+      const labelsDia = dias.map(d => {
+        const [,m,dd] = d.split('-');
+        const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
+        return `${parseInt(dd)} ${meses[parseInt(m)-1]}`;
+      });
       if (dias.length) {
         new Chart(document.getElementById('chart-dias'), {
           type: 'bar',
-          data: { labels: dias.map(d => d.slice(5)), datasets: [{ label: 'S/', data: valores, backgroundColor: '#2563EB', borderRadius: 5 }] },
-          options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+          data: { labels: labelsDia, datasets: [{ data: valDias, backgroundColor: '#2563EB', borderRadius: 5, barThickness: 'flex', maxBarThickness: 28 }] },
+          options: { plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ font:{ size:10 } } }, x:{ ticks:{ font:{ size:10 }, maxRotation:45 } } } },
         });
       }
+      // Dona de métodos
       new Chart(document.getElementById('chart-metodos'), {
         type: 'doughnut',
         data: {
-          labels: ['Efectivo', 'Yape', 'Plin', 'Transferencia', 'Mixto'],
-          datasets: [{ data: [porMetodo.efectivo, porMetodo.yape, porMetodo.plin, porMetodo.transferencia, porMetodo.mixto], backgroundColor: ['#16A34A', '#7C3AED', '#0891B2', '#2563EB', '#64748B'], borderWidth: 2, borderColor: '#fff' }],
+          labels: ['Efectivo','Yape','Plin','Transferencia','Mixto'],
+          datasets: [{ data:[porMetodo.efectivo,porMetodo.yape,porMetodo.plin,porMetodo.transferencia,porMetodo.mixto], backgroundColor:['#16A34A','#7C3AED','#0891B2','#EA580C','#64748B'], borderWidth:3, borderColor:'#fff' }],
         },
-        options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 10 } } }, cutout: '60%' },
+        options: { plugins:{ legend:{ display:false } }, cutout:'68%' },
       });
     }
   } catch (err) {
     cont.innerHTML = errorBox('No se pudo generar el reporte', err.message);
   }
+}
+
+function repKpi(valor, label, color, bg, pct, sparkline, icono) {
+  return `
+    <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.1rem;position:relative;overflow:hidden;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:0.4rem;">
+        <div style="width:36px;height:36px;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;">${icono}</svg>
+        </div>
+        <span style="font-size:0.7rem;font-weight:700;color:${color};background:${bg};padding:0.15rem 0.45rem;border-radius:999px;">${pct==='0%'?'↓ '+pct:'↑ '+pct}</span>
+      </div>
+      <div style="font-size:1.25rem;font-weight:700;color:var(--texto);line-height:1.1;">${valor}</div>
+      <div style="font-size:0.73rem;color:var(--texto-sub);margin-top:0.15rem;">${label}</div>
+      ${sparkline}
+    </div>`;
+}
+
+function indCard(label, valor, sub, color, bg, icono) {
+  return `
+    <div style="background:${bg};border-radius:12px;padding:0.9rem;display:flex;align-items:flex-start;gap:0.6rem;">
+      <div style="width:36px;height:36px;border-radius:10px;background:white;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;">${icono}</svg>
+      </div>
+      <div>
+        <div style="font-size:0.72rem;color:var(--texto-sub);">${label}</div>
+        <div style="font-size:1.2rem;font-weight:700;color:var(--texto);line-height:1.1;">${valor}</div>
+        <div style="font-size:0.7rem;color:var(--texto-sub);">${sub}</div>
+      </div>
+    </div>`;
+}
+
+function exportarReporteCSV() {
+  const d = window._repData;
+  if (!d) { toast('Genera el reporte primero','','warn'); return; }
+  const cab = ['Tipo','Monto','Método','Fecha'];
+  const lineas = (d.movs||[]).map(m=>[m.tipo,m.monto,m.metodo_pago||'',m.created_at].map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(','));
+  const csv = '\uFEFF'+[cab.join(','),...lineas].join('\n');
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
+  a.download=`reporte_${window._repDesde}_${window._repHasta}.csv`; a.click();
+  toast('Exportado','CSV descargado','ok');
 }
 
 function repTarjeta(label, valor, color) {
