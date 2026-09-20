@@ -105,6 +105,7 @@ function renderModulo(modulo) {
     case 'caja':             return moduloCaja();
     case 'tiendita':         return moduloTiendita();
     case 'limpieza':         return moduloLimpieza();
+    case 'reportes':         return moduloReportes();
     // Hotel — configuración (admin)
     case 'habitacion-config': return moduloHabitacionConfig();
     case 'personal':         return moduloPersonal();
@@ -1029,6 +1030,9 @@ async function moduloDashboardHotel() {
     habs.forEach(h => { conteo[h.estado] = (conteo[h.estado] || 0) + 1; });
 
     const turno = await getTurnoAbierto();
+    const totalHabs = habs.length;
+    const ocupadas = conteo.ocupada + conteo.reservada;
+    const pctOcupacion = totalHabs > 0 ? Math.round((ocupadas / totalHabs) * 100) : 0;
 
     contenido().innerHTML = `
       <div class="seccion-titulo">Dashboard</div>
@@ -1041,15 +1045,46 @@ async function moduloDashboardHotel() {
         ${estadoTarjeta('Reservadas', conteo.reservada, '#2563EB')}
       </div>
 
-      <div class="card" style="max-width:520px;">
-        <div style="font-weight:600; margin-bottom:0.75rem;">Tu turno de caja</div>
-        ${turno
-          ? `<div style="font-size:0.85rem; color:var(--texto-sub);">Turno abierto desde ${fechaHora(turno.apertura_at)} · Fondo ${soles(turno.fondo_inicial)}</div>
-             <button style="${ST.btnSec}; margin-top:0.75rem;" onclick="navegarA('caja')">Ir a caja</button>`
-          : `<div style="font-size:0.85rem; color:var(--texto-sub);">No tienes turno abierto. Ábrelo para empezar a operar.</div>
-             <button style="${ST.btnPri}; width:auto; padding:0.6rem 1.2rem; margin-top:0.75rem;" onclick="navegarA('caja')">Abrir turno</button>`}
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:1rem; margin-bottom:1.5rem;">
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:1rem;">Ocupación actual · ${pctOcupacion}%</div>
+          <div style="max-width:220px; margin:0 auto;">
+            <canvas id="chart-ocupacion"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:0.75rem;">Tu turno de caja</div>
+          ${turno
+            ? `<div style="font-size:0.85rem; color:var(--texto-sub);">Turno abierto desde ${fechaHora(turno.apertura_at)}<br>Fondo inicial ${soles(turno.fondo_inicial)}</div>
+               <button style="${ST.btnSec}; margin-top:0.75rem;" onclick="navegarA('caja')">Ir a caja</button>`
+            : `<div style="font-size:0.85rem; color:var(--texto-sub);">No tienes turno abierto. Ábrelo para empezar a operar.</div>
+               <button style="${ST.btnPri}; width:auto; padding:0.6rem 1.2rem; margin-top:0.75rem;" onclick="navegarA('caja')">Abrir turno</button>`}
+        </div>
       </div>
     `;
+
+    // Dibujar gráfico de dona (Chart.js)
+    if (typeof Chart !== 'undefined') {
+      const ctx = document.getElementById('chart-ocupacion');
+      if (ctx) {
+        new Chart(ctx, {
+          type: 'doughnut',
+          data: {
+            labels: ['Libres', 'Ocupadas', 'Limpieza', 'Reservadas', 'Mantenim.'],
+            datasets: [{
+              data: [conteo.libre, conteo.ocupada, conteo.limpieza, conteo.reservada, conteo.mantenimiento],
+              backgroundColor: ['#16A34A', '#DC2626', '#CA8A04', '#2563EB', '#64748B'],
+              borderWidth: 2, borderColor: '#fff',
+            }],
+          },
+          options: {
+            plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 12 } } },
+            cutout: '62%',
+          },
+        });
+      }
+    }
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar el dashboard', err.message);
   }
@@ -2358,9 +2393,7 @@ async function moduloPersonal() {
           <div class="seccion-titulo">Personal</div>
           <div class="seccion-sub">${(personal||[]).length} usuario(s)</div>
         </div>
-      </div>
-      <div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:10px; padding:0.85rem 1rem; margin-bottom:1rem; font-size:0.83rem; color:#1E40AF;">
-        ℹ️ Para crear empleados con login propio, escríbeme y lo agregamos vía función segura en la Fase 5. Por ahora puedes ver el listado y resetear contraseñas.
+        <button style="${ST.btnPri}; width:auto; padding:0.65rem 1.2rem;" onclick="abrirCrearEmpleado()">+ Crear empleado</button>
       </div>
 
       <div class="card" style="padding:0; overflow:hidden;">
@@ -2387,6 +2420,60 @@ async function moduloPersonal() {
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar el personal', err.message);
   }
+}
+
+// ── Crear empleado con login propio ─────────────────────────
+function abrirCrearEmpleado() {
+  const html = `
+    <form id="form-empleado">
+      <div style="${ST.grupo}">
+        <label style="${ST.label}">Nombre completo *</label>
+        <input style="${ST.input}" id="emp-nombre" required placeholder="María Torres">
+      </div>
+      <div style="${ST.grupo}">
+        <label style="${ST.label}">Rol *</label>
+        <select style="${ST.input}" id="emp-rol">
+          <option value="recepcion">Recepción</option>
+          <option value="limpieza">Limpieza</option>
+          <option value="restaurante">Restaurante</option>
+          <option value="cocina">Cocina</option>
+        </select>
+      </div>
+      <div style="${ST.fila}">
+        <div style="${ST.grupo}">
+          <label style="${ST.label}">Email (login) *</label>
+          <input style="${ST.input}" id="emp-email" type="email" required placeholder="empleado@hotel.com">
+        </div>
+        <div style="${ST.grupo}">
+          <label style="${ST.label}">Contraseña *</label>
+          <input style="${ST.input}" id="emp-pass" required minlength="6" placeholder="Mínimo 6 caracteres">
+        </div>
+      </div>
+      <div id="emp-error" style="display:none; background:#FEF2F2; border:1px solid #FECACA; color:var(--rojo); padding:0.6rem 0.85rem; border-radius:8px; font-size:0.82rem; margin-bottom:0.75rem;"></div>
+      <button type="submit" style="${ST.btnPri}" id="btn-emp-submit">Crear empleado</button>
+    </form>
+  `;
+  abrirModal('Crear empleado', html);
+
+  $('#form-empleado').addEventListener('submit', async e => {
+    e.preventDefault();
+    const errEl = $('#emp-error'); errEl.style.display = 'none';
+    const btn = $('#btn-emp-submit'); btn.disabled = true; btn.textContent = 'Creando…';
+    try {
+      await rpc('fn_crear_empleado', {
+        p_nombre: $('#emp-nombre').value.trim(),
+        p_rol: $('#emp-rol').value,
+        p_email: $('#emp-email').value.trim(),
+        p_password: $('#emp-pass').value,
+      });
+      cerrarModal();
+      toast('Empleado creado', 'Ya puede iniciar sesión', 'ok');
+      moduloPersonal();
+    } catch (err) {
+      errEl.textContent = 'Error: ' + err.message; errEl.style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Crear empleado';
+    }
+  });
 }
 
 function abrirResetPass(userId, nombre) {
@@ -2443,6 +2530,149 @@ async function moduloMiSuscripcion() {
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar tu suscripción', err.message);
   }
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  HOTEL › REPORTES (ventas por rango de fechas)
+// ════════════════════════════════════════════════════════════
+async function moduloReportes() {
+  skeleton();
+  // Rango por defecto: últimos 30 días
+  const hoy = new Date();
+  const hace30 = new Date(hoy.getTime() - 29 * 24 * 3600 * 1000);
+  const fmt = d => d.toISOString().slice(0, 10);
+
+  contenido().innerHTML = `
+    <div class="seccion-titulo">Reportes</div>
+    <div class="seccion-sub">Ventas e ingresos por rango de fechas</div>
+
+    <div class="card" style="margin-bottom:1.25rem;">
+      <div style="display:flex; gap:0.75rem; flex-wrap:wrap; align-items:flex-end;">
+        <div>
+          <label style="${ST.label}">Desde</label>
+          <input style="${ST.input}" id="rep-desde" type="date" value="${fmt(hace30)}">
+        </div>
+        <div>
+          <label style="${ST.label}">Hasta</label>
+          <input style="${ST.input}" id="rep-hasta" type="date" value="${fmt(hoy)}">
+        </div>
+        <button style="${ST.btnPri}; width:auto; padding:0.65rem 1.4rem;" onclick="generarReporte()">Generar</button>
+      </div>
+    </div>
+
+    <div id="rep-resultado"></div>
+  `;
+
+  // Generar automáticamente el primer reporte
+  generarReporte();
+}
+
+async function generarReporte() {
+  const cont = document.getElementById('rep-resultado');
+  if (!cont) return;
+  cont.innerHTML = `<div style="display:flex;align-items:center;gap:0.5rem;color:var(--texto-sub);padding:1.5rem;"><div class="spinner" style="width:22px;height:22px;"></div> Generando…</div>`;
+
+  const desde = $('#rep-desde').value;
+  const hasta = $('#rep-hasta').value;
+  const desdeISO = new Date(desde + 'T00:00:00').toISOString();
+  const hastaISO = new Date(hasta + 'T23:59:59').toISOString();
+
+  try {
+    // Movimientos de caja (ingresos por método) en el rango
+    const { data: movs } = await db.from('movimientos_caja')
+      .select('tipo, monto, metodo_pago, created_at')
+      .eq('hotel_id', SESSION.hotel.id)
+      .gte('created_at', desdeISO).lte('created_at', hastaISO)
+      .limit(5000);
+
+    // Estadías (check-ins) en el rango
+    const { data: estadias } = await db.from('estadias_reservas')
+      .select('modalidad, tarifa_aplicada, created_at, estado')
+      .eq('hotel_id', SESSION.hotel.id)
+      .gte('created_at', desdeISO).lte('created_at', hastaISO)
+      .limit(5000);
+
+    // Comprobantes en el rango
+    const { data: comps } = await db.from('comprobantes_sunat')
+      .select('tipo_doc, total, estado_sunat, created_at')
+      .eq('hotel_id', SESSION.hotel.id)
+      .gte('created_at', desdeISO).lte('created_at', hastaISO)
+      .limit(5000);
+
+    // ── Totales ──
+    const porMetodo = { efectivo: 0, yape: 0, plin: 0, transferencia: 0, mixto: 0 };
+    let ingresos = 0, egresos = 0;
+    (movs || []).forEach(m => {
+      if (m.tipo === 'ingreso') { ingresos += Number(m.monto); porMetodo[m.metodo_pago || 'efectivo'] = (porMetodo[m.metodo_pago || 'efectivo'] || 0) + Number(m.monto); }
+      else if (m.tipo === 'egreso') egresos += Number(m.monto);
+    });
+    const neto = ingresos - egresos;
+    const totalCheckins = (estadias || []).length;
+    const porNoche = (estadias || []).filter(e => e.modalidad === 'noche').length;
+    const porHoras = (estadias || []).filter(e => e.modalidad === 'horas').length;
+    const totalFacturado = (comps || []).filter(c => c.estado_sunat !== 'ANULADO').reduce((s, c) => s + Number(c.total), 0);
+
+    // ── Ingresos por día (para el gráfico de barras) ──
+    const porDia = {};
+    (movs || []).forEach(m => {
+      if (m.tipo !== 'ingreso') return;
+      const dia = m.created_at.slice(0, 10);
+      porDia[dia] = (porDia[dia] || 0) + Number(m.monto);
+    });
+    const dias = Object.keys(porDia).sort();
+    const valores = dias.map(d => porDia[d]);
+
+    cont.innerHTML = `
+      <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(180px,1fr)); gap:0.85rem; margin-bottom:1.5rem;">
+        ${repTarjeta('Ingresos totales', soles(ingresos), '#16A34A')}
+        ${repTarjeta('Egresos', soles(egresos), '#DC2626')}
+        ${repTarjeta('Neto', soles(neto), '#1A3FA6')}
+        ${repTarjeta('Total facturado', soles(totalFacturado), '#7C3AED')}
+        ${repTarjeta('Check-ins', totalCheckins, '#2563EB')}
+        ${repTarjeta('Por noche / horas', `${porNoche} / ${porHoras}`, '#EA580C')}
+      </div>
+
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem;">
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:1rem;">Ingresos por día</div>
+          ${dias.length ? '<canvas id="chart-dias" style="max-height:260px;"></canvas>' : '<p style="color:var(--texto-sub); font-size:0.85rem;">Sin ingresos en este rango.</p>'}
+        </div>
+        <div class="card">
+          <div style="font-weight:600; margin-bottom:1rem;">Ingresos por método de pago</div>
+          <canvas id="chart-metodos" style="max-height:260px;"></canvas>
+        </div>
+      </div>
+    `;
+
+    if (typeof Chart !== 'undefined') {
+      if (dias.length) {
+        new Chart(document.getElementById('chart-dias'), {
+          type: 'bar',
+          data: { labels: dias.map(d => d.slice(5)), datasets: [{ label: 'S/', data: valores, backgroundColor: '#2563EB', borderRadius: 5 }] },
+          options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+        });
+      }
+      new Chart(document.getElementById('chart-metodos'), {
+        type: 'doughnut',
+        data: {
+          labels: ['Efectivo', 'Yape', 'Plin', 'Transferencia', 'Mixto'],
+          datasets: [{ data: [porMetodo.efectivo, porMetodo.yape, porMetodo.plin, porMetodo.transferencia, porMetodo.mixto], backgroundColor: ['#16A34A', '#7C3AED', '#0891B2', '#2563EB', '#64748B'], borderWidth: 2, borderColor: '#fff' }],
+        },
+        options: { plugins: { legend: { position: 'bottom', labels: { font: { size: 11 }, padding: 10 } } }, cutout: '60%' },
+      });
+    }
+  } catch (err) {
+    cont.innerHTML = errorBox('No se pudo generar el reporte', err.message);
+  }
+}
+
+function repTarjeta(label, valor, color) {
+  return `
+    <div class="card" style="padding:1rem; border-top:3px solid ${color};">
+      <div style="font-size:1.35rem; font-weight:700; color:var(--texto); line-height:1;">${valor}</div>
+      <div style="font-size:0.75rem; color:var(--texto-sub); margin-top:0.3rem;">${label}</div>
+    </div>`;
 }
 
 
