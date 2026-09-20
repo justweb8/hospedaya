@@ -4076,34 +4076,192 @@ async function moduloMiSuscripcion() {
   try {
     const susc = await getSuscripcionHotel(SESSION.hotel.id);
     const dias = susc.dias_restantes;
-    let estadoColor = dias < 0 ? '#DC2626' : dias <= 5 ? '#EA580C' : '#16A34A';
+    const estadoColor = dias < 0 ? '#DC2626' : dias <= 5 ? '#EA580C' : '#16A34A';
+    const estadoBg    = dias < 0 ? '#FEF2F2' : dias <= 5 ? '#FFF7ED' : '#F0FDF4';
+    const diasMostrar = Math.max(0, dias);
+    const pct = Math.min(100, Math.max(0, (diasMostrar / 30) * 100));
+    // Arco SVG: radio=80, circunferencia=2π*80≈502
+    const circ = 502;
+    const offset = circ - (circ * pct / 100);
+    const planLabel = (susc.plan||'basico').toUpperCase();
+    const venceStr = susc.fecha_vencimiento
+      ? new Date(susc.fecha_vencimiento).toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'})
+      : '—';
+    const cicloStr = susc.ciclo_pago
+      ? susc.ciclo_pago.charAt(0).toUpperCase()+susc.ciclo_pago.slice(1)
+      : '—';
+
+    const beneficios = [
+      'Gestión de reservas',
+      'Control de huéspedes',
+      'Rack de habitaciones',
+      'Reportes básicos',
+      'Soporte por WhatsApp',
+    ];
 
     contenido().innerHTML = `
-      <div class="seccion-titulo">Mi Suscripción</div>
-      <div class="seccion-sub">Estado de tu plan en HospedaYa</div>
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <div style="width:52px;height:52px;border-radius:14px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div>
+            <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Mi Suscripción</h1>
+            <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Gestiona tu plan y mantén tu hotel siempre en marcha</p>
+          </div>
+        </div>
+        <!-- Breadcrumb -->
+        <div style="font-size:0.8rem;color:var(--texto-sub);display:flex;align-items:center;gap:0.4rem;">
+          <span>Inicio</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6"/></svg>
+          <span style="color:var(--texto);font-weight:600;">Mi Suscripción</span>
+        </div>
+      </div>
 
-      <div class="card" style="max-width:480px;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1.25rem;">
-          <span style="font-weight:700; font-size:1.15rem;">${escapeHtml(susc.nombre_comercial)}</span>
-          <span class="badge-plan ${susc.plan}">${susc.plan}</span>
+      <!-- Grid principal: plan + sidebar -->
+      <div style="display:grid;grid-template-columns:1fr 320px;gap:1.25rem;margin-bottom:1.25rem;" class="susc-grid">
+
+        <!-- Card plan actual -->
+        <div style="background:white;border:1px solid var(--gris-borde);border-radius:16px;padding:1.75rem;">
+          <div style="font-size:0.78rem;font-weight:600;color:var(--texto-sub);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.4rem;">Plan actual</div>
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+            <span style="font-size:1.75rem;font-weight:800;color:var(--texto);">${escapeHtml(susc.nombre_comercial)}</span>
+            <span style="font-size:0.72rem;font-weight:700;color:#2563EB;background:#EFF6FF;padding:0.25rem 0.75rem;border-radius:999px;letter-spacing:0.05em;">${planLabel}</span>
+          </div>
+          <p style="font-size:0.85rem;color:var(--texto-sub);margin:0 0 1.5rem;">Ideal para pequeños alojamientos que buscan una gestión simple y eficiente.</p>
+
+          <!-- Detalles del plan + arco circular -->
+          <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap;">
+            <div style="flex:1;min-width:200px;">
+              ${filaDetalleSusc('calendar','Ciclo de pago', cicloStr)}
+              ${filaDetalleSusc('calendar','Vence el', venceStr)}
+              ${filaDetalleSusc('credit-card','Método de pago','No registrado')}
+              ${filaDetalleSuscEstado('Estado', dias >= 0 ? 'Activo' : 'Vencido', estadoColor, estadoBg)}
+            </div>
+            <!-- Arco circular de días -->
+            <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
+              <div style="position:relative;width:180px;height:180px;">
+                <svg viewBox="0 0 200 200" width="180" height="180">
+                  <!-- Pista gris -->
+                  <circle cx="100" cy="100" r="80" fill="none" stroke="#E7EBF2" stroke-width="14" stroke-linecap="round"/>
+                  <!-- Arco de progreso -->
+                  <circle cx="100" cy="100" r="80" fill="none" stroke="${estadoColor}" stroke-width="14" stroke-linecap="round"
+                    stroke-dasharray="${circ}" stroke-dashoffset="${offset}"
+                    transform="rotate(-90 100 100)" style="transition:stroke-dashoffset 1s ease;"/>
+                </svg>
+                <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                  <div style="font-size:2.5rem;font-weight:800;color:${estadoColor};line-height:1;">${diasMostrar}</div>
+                  <div style="font-size:0.8rem;color:var(--texto-sub);font-weight:500;">días restantes</div>
+                </div>
+              </div>
+              <div style="font-size:0.8rem;color:var(--texto-sub);text-align:center;margin-top:0.5rem;">
+                Tu plan se renovará el<br><strong style="color:var(--texto);">${venceStr}</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Botones -->
+          <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1.5rem;align-items:center;">
+            <a href="${WA_URL}" target="_blank" rel="noopener" style="flex:1;display:flex;align-items:center;justify-content:center;gap:0.6rem;background:#16A34A;color:white;text-decoration:none;padding:0.85rem 1.25rem;border-radius:12px;font-weight:700;font-size:0.92rem;min-width:200px;">
+              <svg viewBox="0 0 24 24" fill="white" style="width:20px;height:20px;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/></svg>
+              Renovar por WhatsApp →
+            </a>
+            <div style="display:flex;align-items:center;gap:0.6rem;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:0.85rem 1.1rem;flex:1;min-width:180px;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              <span style="font-size:0.8rem;color:#16A34A;font-weight:500;">Renueva a tiempo y evita interrupciones en el servicio.</span>
+            </div>
+          </div>
         </div>
-        <div style="text-align:center; padding:1.5rem; background:var(--gris-bg); border-radius:12px; margin-bottom:1.25rem;">
-          <div style="font-size:2.5rem; font-weight:700; color:${estadoColor}; line-height:1;">${dias >= 0 ? dias : 0}</div>
-          <div style="font-size:0.85rem; color:var(--texto-sub); margin-top:0.35rem;">${dias >= 0 ? 'días restantes' : 'suscripción vencida'}</div>
+
+        <!-- Sidebar derecho -->
+        <div style="display:flex;flex-direction:column;gap:1rem;">
+          <!-- ¿Necesitas más funciones? -->
+          <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.25rem;display:flex;align-items:flex-start;gap:1rem;">
+            <div style="width:48px;height:48px;border-radius:13px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:24px;height:24px;"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            </div>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:0.92rem;margin-bottom:0.25rem;">¿Necesitas más funciones?</div>
+              <div style="font-size:0.78rem;color:var(--texto-sub);margin-bottom:0.75rem;">Descubre nuestros planes y elige el que mejor se adapte a tu hotel.</div>
+              <a href="${WA_URL}" target="_blank" style="display:inline-flex;align-items:center;gap:0.4rem;background:white;border:1.5px solid var(--azul);border-radius:9px;padding:0.45rem 0.9rem;font-size:0.8rem;font-weight:600;color:var(--azul);text-decoration:none;cursor:pointer;">
+                Ver planes <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:12px;height:12px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+              </a>
+            </div>
+          </div>
+
+          <!-- Beneficios del plan -->
+          <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.25rem;position:relative;overflow:hidden;">
+            <!-- Ícono decorativo fondo -->
+            <div style="position:absolute;bottom:-10px;right:-10px;opacity:0.06;">
+              <svg viewBox="0 0 24 24" fill="#2563EB" style="width:100px;height:100px;"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/></svg>
+            </div>
+            <div style="font-weight:700;font-size:1rem;margin-bottom:1rem;">Beneficios de tu plan</div>
+            ${beneficios.map(b=>`
+              <div style="display:flex;align-items:center;gap:0.6rem;padding:0.4rem 0;">
+                <div style="width:22px;height:22px;border-radius:50%;background:#16A34A;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="20 6 9 17 4 12"/></svg>
+                </div>
+                <span style="font-size:0.85rem;color:var(--texto);">${b}</span>
+              </div>`).join('')}
+          </div>
         </div>
-        <div style="font-size:0.85rem; color:var(--texto-sub); line-height:1.8;">
-          Ciclo de pago: <strong style="color:var(--texto); text-transform:capitalize;">${susc.ciclo_pago}</strong><br>
-          Vence el: <strong style="color:var(--texto);">${fechaCorta(susc.fecha_vencimiento)}</strong>
+      </div>
+
+      <!-- Banner inferior "Haz crecer tu hotel" -->
+      <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.35rem 1.75rem;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;position:relative;overflow:hidden;">
+        <svg style="position:absolute;bottom:0;right:120px;opacity:0.09;" viewBox="0 0 300 80" width="300" height="80" preserveAspectRatio="none">
+          <path d="M0 60 Q75 20 150 50 Q225 80 300 40 L300 80 L0 80 Z" fill="#2563EB"/>
+        </svg>
+        <svg style="position:absolute;bottom:0;right:0;opacity:0.06;" viewBox="0 0 200 80" width="200" height="80" preserveAspectRatio="none">
+          <path d="M0 50 Q50 10 100 40 Q150 70 200 30 L200 80 L0 80 Z" fill="#7C3AED"/>
+        </svg>
+        <div style="width:52px;height:52px;border-radius:14px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:26px;height:26px;"><path d="M2 4l3 12h14l3-12-6 7.5-4-6-4 6L2 4z"/></svg>
         </div>
-        <a href="${WA_URL}" target="_blank" rel="noopener" style="display:flex; align-items:center; justify-content:center; gap:0.5rem; background:#16A34A; color:white; text-decoration:none; padding:0.85rem; border-radius:10px; font-weight:600; margin-top:1.25rem;">
-          <svg viewBox="0 0 24 24" fill="white" style="width:18px;height:18px;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/></svg>
-          Renovar por WhatsApp
+        <div style="flex:1;position:relative;">
+          <div style="font-weight:700;font-size:1.05rem;color:var(--texto);">Haz crecer tu hotel</div>
+          <div style="font-size:0.82rem;color:var(--texto-sub);">Optimiza tu operación con más herramientas y funcionalidades.</div>
+        </div>
+        <a href="${WA_URL}" target="_blank" style="display:flex;align-items:center;gap:0.5rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;text-decoration:none;padding:0.7rem 1.35rem;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;position:relative;white-space:nowrap;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
+          Conocer otros planes
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:14px;height:14px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </a>
       </div>
     `;
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar tu suscripción', err.message);
   }
+}
+
+function filaDetalleSusc(icon, label, valor) {
+  const iconos = {
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    'credit-card': '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  };
+  return `
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.55rem 0;border-bottom:1px solid var(--gris-borde);">
+      <div style="width:28px;height:28px;border-radius:8px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;">${iconos[icon]||iconos.calendar}</svg>
+      </div>
+      <span style="flex:1;font-size:0.82rem;color:var(--texto-sub);">${label}</span>
+      <span style="font-size:0.85rem;font-weight:600;color:var(--texto);">${valor}</span>
+    </div>`;
+}
+
+function filaDetalleSuscEstado(label, valor, color, bg) {
+  return `
+    <div style="display:flex;align-items:center;gap:0.75rem;padding:0.55rem 0;">
+      <div style="width:28px;height:28px;border-radius:8px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      </div>
+      <span style="flex:1;font-size:0.82rem;color:var(--texto-sub);">${label}</span>
+      <span style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.75rem;font-weight:700;color:${color};background:${bg};padding:0.22rem 0.75rem;border-radius:999px;">
+        <span style="width:6px;height:6px;border-radius:50%;background:${color};"></span>
+        ${valor}
+      </span>
+    </div>`;
 }
 
 
