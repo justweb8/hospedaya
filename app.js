@@ -1195,6 +1195,213 @@ function mostrarResultadoArqueo(esperado, declarado, diferencia) {
 
 
 // ════════════════════════════════════════════════════════════
+//  SISTEMA DE NOTIFICACIONES
+// ════════════════════════════════════════════════════════════
+let _notificaciones = [];
+let _panelAbierto   = false;
+
+async function cargarNotificaciones() {
+  if (!SESSION.hotel || SESSION.perfil?.es_superadmin) return;
+  try {
+    const ahora    = new Date();
+    const hoy      = ahora.toISOString().slice(0,10);
+    const notis    = [];
+
+    // 1. Habitaciones que vencen hoy (salida prevista hoy)
+    const { data: vencenHoy } = await db.from('estadias_reservas')
+      .select('*, habitaciones(numero), huespedes(nombres,apellidos)')
+      .eq('hotel_id', SESSION.hotel.id)
+      .eq('estado','activa')
+      .gte('fecha_salida_prev', hoy+'T00:00:00')
+      .lte('fecha_salida_prev', hoy+'T23:59:59');
+
+    (vencenHoy||[]).forEach(e => {
+      const hora = new Date(e.fecha_salida_prev).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+      notis.push({
+        id: 'salida-'+e.id, tipo: 'salida', urgencia: 'alta',
+        titulo: `Check-out previsto · Hab. ${e.habitaciones?.numero}`,
+        msg: `${e.huespedes?.nombres} ${e.huespedes?.apellidos} · Salida a las ${hora}`,
+        accion: () => navegarA('rack'),
+        icono: '🚪', color: '#DC2626', bg: '#FEF2F2',
+      });
+    });
+
+    // 2. Reservas con entrada hoy
+    const { data: entradasHoy } = await db.from('estadias_reservas')
+      .select('*, habitaciones(numero), huespedes(nombres,apellidos)')
+      .eq('hotel_id', SESSION.hotel.id)
+      .eq('estado','reservada')
+      .gte('fecha_entrada', hoy+'T00:00:00')
+      .lte('fecha_entrada', hoy+'T23:59:59');
+
+    (entradasHoy||[]).forEach(e => {
+      notis.push({
+        id: 'entrada-'+e.id, tipo: 'entrada', urgencia: 'media',
+        titulo: `Check-in hoy · Hab. ${e.habitaciones?.numero}`,
+        msg: `${e.huespedes?.nombres} ${e.huespedes?.apellidos} tiene reserva para hoy`,
+        accion: () => navegarA('rack'),
+        icono: '📅', color: '#2563EB', bg: '#EFF6FF',
+      });
+    });
+
+    // 3. Habitaciones en limpieza por mucho tiempo (> 2 horas)
+    const { data: enLimpieza } = await db.from('habitaciones')
+      .select('*').eq('hotel_id', SESSION.hotel.id).eq('estado','limpieza');
+
+    (enLimpieza||[]).forEach(h => {
+      notis.push({
+        id: 'limpieza-'+h.id, tipo: 'limpieza', urgencia: 'baja',
+        titulo: `Hab. ${h.numero} en limpieza`,
+        msg: 'Pendiente de marcar como libre',
+        accion: () => navegarA('rack'),
+        icono: '🧹', color: '#CA8A04', bg: '#FEFCE8',
+      });
+    });
+
+    // 4. Turno sin cerrar del día anterior
+    if (SESSION.turnoActivo) {
+      const apertura = new Date(SESSION.turnoActivo.apertura_at||SESSION.turnoActivo.created_at);
+      const horas    = Math.floor((ahora - apertura) / 3600000);
+      if (horas >= 12) {
+        notis.push({
+          id: 'turno-abierto', tipo: 'turno', urgencia: 'media',
+          titulo: 'Turno abierto hace ' + horas + 'h',
+          msg: 'El turno lleva más de 12 horas abierto. Considera hacer el arqueo.',
+          accion: () => navegarA('caja'),
+          icono: '💰', color: '#EA580C', bg: '#FFF7ED',
+        });
+      }
+    }
+
+    // 5. Suscripción por vencer (≤ 7 días)
+    if (SESSION.hotel.fecha_vencimiento) {
+      const diasRestantes = Math.ceil(
+        (new Date(SESSION.hotel.fecha_vencimiento) - ahora) / (1000*60*60*24)
+      );
+      if (diasRestantes > 0 && diasRestantes <= 7) {
+        notis.push({
+          id: 'suscripcion', tipo: 'suscripcion', urgencia: diasRestantes<=3?'alta':'media',
+          titulo: `Suscripción vence en ${diasRestantes} día${diasRestantes!==1?'s':''}`,
+          msg: 'Renueva para no perder el acceso al sistema',
+          accion: () => navegarA('suscripcion'),
+          icono: '⚠️', color: diasRestantes<=3?'#DC2626':'#EA580C',
+          bg: diasRestantes<=3?'#FEF2F2':'#FFF7ED',
+        });
+      }
+    }
+
+    // 6. Habitaciones en mantenimiento
+    const { data: enMant } = await db.from('habitaciones')
+      .select('numero').eq('hotel_id', SESSION.hotel.id).eq('estado','mantenimiento');
+    if (enMant?.length) {
+      notis.push({
+        id: 'mantenimiento', tipo: 'mantenimiento', urgencia: 'baja',
+        titulo: `${enMant.length} hab. en mantenimiento`,
+        msg: enMant.map(h=>`Hab. ${h.numero}`).join(', '),
+        accion: () => navegarA('rack'),
+        icono: '🔧', color: '#64748B', bg: '#F1F5F9',
+      });
+    }
+
+    _notificaciones = notis;
+    actualizarBadgeCampana();
+    if (_panelAbierto) renderPanelNotificaciones();
+  } catch(e) { console.warn('Notificaciones:', e.message); }
+}
+
+function actualizarBadgeCampana() {
+  const dot   = document.getElementById('bell-dot');
+  const count = document.getElementById('bell-count');
+  const n = _notificaciones.filter(n=>n.urgencia==='alta'||n.urgencia==='media').length;
+  if (n > 0) {
+    if (dot)   { dot.style.display='block'; }
+    if (count) { count.textContent=n>9?'9+':n; count.style.display='flex'; }
+  } else {
+    if (dot)   dot.style.display='none';
+    if (count) count.style.display='none';
+  }
+}
+
+function toggleNotificaciones() {
+  const panel = document.getElementById('panel-notificaciones');
+  if (!panel) return;
+  _panelAbierto = !_panelAbierto;
+  panel.style.display = _panelAbierto ? 'block' : 'none';
+  if (_panelAbierto) {
+    renderPanelNotificaciones();
+    // Cerrar al hacer click fuera
+    setTimeout(()=>{
+      document.addEventListener('click', cerrarNotificacionesFuera, { once:true });
+    }, 10);
+  }
+}
+
+function cerrarNotificaciones() {
+  _panelAbierto = false;
+  const panel = document.getElementById('panel-notificaciones');
+  if (panel) panel.style.display = 'none';
+}
+
+function cerrarNotificacionesFuera(e) {
+  const panel = document.getElementById('panel-notificaciones');
+  const btn   = document.getElementById('btn-campana');
+  if (panel && !panel.contains(e.target) && !btn?.contains(e.target)) {
+    cerrarNotificaciones();
+  }
+}
+
+function renderPanelNotificaciones() {
+  const lista = document.getElementById('lista-notificaciones');
+  if (!lista) return;
+
+  if (!_notificaciones.length) {
+    lista.innerHTML = `
+      <div style="padding:2.5rem;text-align:center;color:var(--texto-sub);">
+        <div style="font-size:2.5rem;margin-bottom:0.75rem;">✅</div>
+        <div style="font-weight:600;margin-bottom:0.25rem;">Todo al día</div>
+        <div style="font-size:0.82rem;">No hay notificaciones pendientes</div>
+      </div>`;
+    return;
+  }
+
+  // Ordenar: alta → media → baja
+  const orden = { alta:0, media:1, baja:2 };
+  const sorted = [..._notificaciones].sort((a,b)=>orden[a.urgencia]-orden[b.urgencia]);
+
+  lista.innerHTML = sorted.map(n=>`
+    <div onclick="clickNotificacion('${n.id}')"
+      style="display:flex;align-items:flex-start;gap:0.75rem;padding:0.9rem 1.1rem;border-bottom:1px solid var(--gris-borde);cursor:pointer;transition:background 0.1s;"
+      onmouseover="this.style.background='var(--gris-bg)'"
+      onmouseout="this.style.background='white'">
+      <div style="width:36px;height:36px;border-radius:10px;background:${n.bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.1rem;">${n.icono}</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-size:0.85rem;color:${n.color};">${escapeHtml(n.titulo)}</div>
+        <div style="font-size:0.78rem;color:var(--texto-sub);margin-top:0.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(n.msg)}</div>
+      </div>
+      <div style="width:8px;height:8px;border-radius:50%;background:${n.urgencia==='baja'?'#CBD5E1':n.color};flex-shrink:0;margin-top:4px;"></div>
+    </div>`).join('');
+
+  // Footer
+  lista.innerHTML += `
+    <div style="padding:0.75rem 1.1rem;text-align:center;">
+      <button onclick="cargarNotificaciones()" style="font-size:0.78rem;color:var(--azul);font-weight:600;background:none;border:none;cursor:pointer;">
+        🔄 Actualizar
+      </button>
+    </div>`;
+}
+
+function clickNotificacion(id) {
+  const n = _notificaciones.find(x=>x.id===id);
+  if (n?.accion) { n.accion(); cerrarNotificaciones(); }
+}
+
+function marcarTodasLeidas() {
+  _notificaciones = [];
+  actualizarBadgeCampana();
+  renderPanelNotificaciones();
+}
+
+// ════════════════════════════════════════════════════════════
 //  HOTEL › DASHBOARD (resumen operativo)
 // ════════════════════════════════════════════════════════════
 async function moduloDashboadHotelPlaceholderRemoved() {}

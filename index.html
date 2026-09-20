@@ -515,12 +515,24 @@
       width: 40px; height: 40px;
       display: flex; align-items: center; justify-content: center;
       cursor: pointer; color: var(--texto-sub);
+      transition: background 0.15s, border-color 0.15s;
     }
+    .topbar-bell:hover { background: #EFF6FF; border-color: var(--azul); color: var(--azul); }
     .topbar-bell svg { width: 19px; height: 19px; }
     .bell-dot {
       position: absolute; top: 8px; right: 9px;
       width: 8px; height: 8px; border-radius: 50%;
       background: var(--rojo); border: 2px solid white;
+      display: none;
+    }
+
+    /* Panel notificaciones */
+    #panel-notificaciones {
+      font-family: inherit;
+    }
+    @keyframes fadeIn {
+      from { opacity:0; transform:translateY(-8px); }
+      to   { opacity:1; transform:translateY(0); }
     }
 
     .topbar-user {
@@ -1128,12 +1140,30 @@
           <input type="text" placeholder="Buscar huésped, reserva o habitación…" id="topbar-buscar">
         </div>
         <div class="topbar-right">
-          <button class="topbar-bell" title="Notificaciones">
+          <button class="topbar-bell" id="btn-campana" title="Notificaciones" onclick="toggleNotificaciones()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
             </svg>
-            <span class="bell-dot"></span>
+            <span class="bell-dot" id="bell-dot" style="display:none;"></span>
+            <span id="bell-count" style="display:none;position:absolute;top:4px;right:4px;background:var(--rojo);color:white;font-size:0.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;display:none;align-items:center;justify-content:center;border:1.5px solid white;"></span>
           </button>
+
+          <!-- Panel de notificaciones -->
+          <div id="panel-notificaciones" style="display:none;position:absolute;top:60px;right:1rem;width:360px;max-height:480px;background:white;border:1px solid var(--gris-borde);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,0.15);z-index:500;overflow:hidden;animation:fadeIn 0.15s ease;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.1rem;border-bottom:1px solid var(--gris-borde);">
+              <div style="font-weight:700;font-size:0.95rem;">Notificaciones</div>
+              <div style="display:flex;gap:0.5rem;align-items:center;">
+                <button onclick="marcarTodasLeidas()" style="font-size:0.75rem;color:var(--azul);font-weight:600;background:none;border:none;cursor:pointer;">Marcar leídas</button>
+                <button onclick="cerrarNotificaciones()" style="background:none;border:none;cursor:pointer;color:var(--texto-sub);font-size:1.1rem;padding:0;line-height:1;">✕</button>
+              </div>
+            </div>
+            <div id="lista-notificaciones" style="overflow-y:auto;max-height:400px;">
+              <div style="padding:2rem;text-align:center;color:var(--texto-sub);font-size:0.85rem;">
+                <div style="font-size:2rem;margin-bottom:0.5rem;">🔔</div>
+                Cargando notificaciones…
+              </div>
+            </div>
+          </div>
           <div class="topbar-user">
             <div class="topbar-avatar" id="topbar-avatar">LN</div>
             <div class="topbar-user-info">
@@ -1643,6 +1673,13 @@ db.auth.onAuthStateChange(async (event, session) => {
     // Turno activo (para roles de caja)
     if (['admin', 'recepcion'].includes(SESSION.perfil.rol)) {
       SESSION.turnoActivo = await getTurnoAbierto();
+    }
+
+    // Notificaciones — cargar al inicio y refrescar cada 5 min
+    if (!SESSION.perfil.es_superadmin) {
+      await cargarNotificaciones();
+      if (window._notiTicker) clearInterval(window._notiTicker);
+      window._notiTicker = setInterval(cargarNotificaciones, 5 * 60 * 1000);
     }
 
     // Navegar al módulo inicial según rol
