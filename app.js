@@ -99,6 +99,8 @@ function renderModulo(modulo) {
     case 'sa-suscripciones': return moduloSaSuscripciones();
     // Hotel — operativa
     case 'dashboard':        return moduloDashboardHotel();
+    case 'restaurante':      return moduloRestaurante();
+    case 'cocina':           return moduloCocina();
     case 'rack':             return moduloRack();
     case 'reservas':         return moduloReservas();
     case 'huespedes':        return moduloHuespedes();
@@ -4648,4 +4650,58 @@ function errorBox(titulo, msg) {
       <div style="font-weight:700; color:var(--rojo); margin-bottom:0.4rem;">${escapeHtml(titulo)}</div>
       <div style="font-size:0.85rem; color:#991B1B;">${escapeHtml(msg)}</div>
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  PLAN PRO › RESTAURANTE
+// ════════════════════════════════════════════════════════════
+function moduloRestaurante() {
+  skeleton();
+  contenido().innerHTML = `
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
+      <div style="width:52px;height:52px;border-radius:14px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>
+      </div>
+      <div>
+        <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Restaurante</h1>
+        <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Gestión de mesas, pedidos y carta del restaurante</p>
+      </div>
+    </div>
+    <div class="card" style="max-width:520px;text-align:center;padding:3rem 2rem;">
+      <div style="font-size:3rem;margin-bottom:1rem;">🍽️</div>
+      <div style="font-weight:700;font-size:1.15rem;margin-bottom:0.5rem;">Módulo Restaurante</div>
+      <div style="font-size:0.85rem;color:var(--texto-sub);margin-bottom:1.5rem;">Este módulo está incluido en tu plan <strong>PRO</strong>. Próximamente estará disponible con gestión de mesas, carta digital, comandas y cargos a habitación.</div>
+      <div style="display:inline-flex;align-items:center;gap:0.5rem;background:#FFF7ED;border:1px solid #FED7AA;border-radius:999px;padding:0.4rem 1rem;font-size:0.82rem;font-weight:600;color:#EA580C;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Próximamente
+      </div>
+    </div>
+  `;
+}
+
+// ════════════════════════════════════════════════════════════
+//  PLAN PRO › COCINA / COMANDAS
+// ════════════════════════════════════════════════════════════
+function moduloCocina() {
+  skeleton();
+  contenido().innerHTML = `
+    <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem;">
+      <div style="width:52px;height:52px;border-radius:14px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/></svg>
+      </div>
+      <div>
+        <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Cocina / Comandas</h1>
+        <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Panel de comandas en tiempo real para el equipo de cocina</p>
+      </div>
+    </div>
+    <div class="card" style="max-width:520px;text-align:center;padding:3rem 2rem;">
+      <div style="font-size:3rem;margin-bottom:1rem;">👨‍🍳</div>
+      <div style="font-weight:700;font-size:1.15rem;margin-bottom:0.5rem;">Módulo Cocina</div>
+      <div style="font-size:0.85rem;color:var(--texto-sub);margin-bottom:1.5rem;">Panel de comandas en tiempo real, estado de pedidos y tiempos de preparación. Disponible en el plan <strong>PRO</strong>.</div>
+      <div style="display:inline-flex;align-items:center;gap:0.5rem;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:999px;padding:0.4rem 1rem;font-size:0.82rem;font-weight:600;color:#16A34A;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Próximamente
+      </div>
+    </div>
+  `;
 }

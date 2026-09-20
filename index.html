@@ -1298,6 +1298,8 @@ function buildSidebar(rol, esSuperadmin) {
   sidebar.innerHTML = '';
 
   const items = [];
+  const plan = SESSION.hotel?.plan || 'basico';
+  const esPro = plan === 'pro';
 
   if (esSuperadmin) {
     items.push(
@@ -1319,6 +1321,20 @@ function buildSidebar(rol, esSuperadmin) {
       );
     }
 
+    // Plan PRO: módulos de restaurante visibles para admin, recepcion, restaurante y cocina
+    if (esPro && ['admin', 'recepcion', 'restaurante'].includes(rol)) {
+      items.push(
+        { separator: true },
+        { id: 'restaurante', label: 'Restaurante', icon: 'utensils' },
+      );
+    }
+    if (esPro && ['admin', 'cocina'].includes(rol)) {
+      if (!items.find(i => i.separator && items.indexOf(i) > items.length - 4)) {
+        items.push({ separator: true });
+      }
+      items.push({ id: 'cocina', label: 'Cocina / Comandas', icon: 'chef-hat' });
+    }
+
     if (rol === 'limpieza') {
       items.push({ id: 'limpieza', label: 'Estado de Habitaciones', icon: 'sparkles' });
     }
@@ -1326,11 +1342,11 @@ function buildSidebar(rol, esSuperadmin) {
     if (rol === 'admin') {
       items.push(
         { separator: true },
-        { id: 'reportes',   label: 'Reportes',             icon: 'trending-up' },
-        { id: 'personal',   label: 'Personal',             icon: 'user-cog' },
-        { id: 'habitacion-config', label: 'Habitaciones',  icon: 'bed' },
-        { id: 'suscripcion', label: 'Mi Suscripción',      icon: 'shield-check' },
-        { id: 'sunat-config', label: 'Config. SUNAT',      icon: 'settings' },
+        { id: 'reportes',          label: 'Reportes',        icon: 'trending-up' },
+        { id: 'personal',          label: 'Personal',        icon: 'user-cog' },
+        { id: 'habitacion-config', label: 'Habitaciones',    icon: 'bed' },
+        { id: 'suscripcion',       label: 'Mi Suscripción',  icon: 'shield-check' },
+        { id: 'sunat-config',      label: 'Config. SUNAT',   icon: 'settings' },
       );
     }
   }
@@ -1353,6 +1369,8 @@ function buildSidebar(rol, esSuperadmin) {
     'bed':              '<path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
     'shield-check':     '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>',
     'settings':         '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    'utensils':         '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>',
+    'chef-hat':         '<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',
   };
 
   items.forEach(item => {
