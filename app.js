@@ -334,16 +334,15 @@ async function abrirGestionHotel(hotelId) {
     const { data: susc } = await db.from('v_suscripcion_hotel').select('*').eq('id', hotelId).single();
     const { data: perfil } = await db.from('perfiles_usuarios').select('*').eq('hotel_id', hotelId).eq('rol','admin').single();
 
-    // Intentar obtener email del dueño
+    // Obtener email del dueño via RPC (si existe) o mostrar indicación
     let emailDueno = '—';
     try {
-      const { data: eu } = await db.from('perfiles_usuarios').select('user_id').eq('hotel_id',hotelId).eq('rol','admin').single();
-      if (eu?.user_id) {
-        // Usamos la función para obtener email (solo superadmin puede ver)
-        const { data: emailData } = await db.rpc('fn_get_email_usuario', { p_user_id: eu.user_id });
+      if (perfil?.user_id) {
+        const { data: emailData } = await db.rpc('fn_get_email_usuario', { p_user_id: perfil.user_id });
         if (emailData) emailDueno = emailData;
+        else emailDueno = 'Ver en Supabase Auth';
       }
-    } catch(_) { emailDueno = perfil?.nombre_completo ? '(ver en Auth)' : '—'; }
+    } catch(_) { emailDueno = 'Ver en Supabase Auth'; }
 
     const dias = susc?.dias_restantes ?? 0;
 
@@ -565,6 +564,80 @@ function abrirFormAltaHotel() {
     }
   });
 }
+
+// ════════════════════════════════════════════════════════════
+//  SUPERADMIN › SUSCRIPCIONES (historial de pagos)
+// ════════════════════════════════════════════════════════════
+async function moduloSaSuscripciones() {
+  skeleton();
+  try {
+    const { data: pagos, error } = await db.from('suscripciones_pagos')
+      .select(`*, hoteles(nombre_comercial, plan)`)
+      .order('fecha_pago', { ascending: false }).limit(200);
+    if (error) throw error;
+
+    const ahora = new Date();
+    const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+    const totalMes  = pagos.filter(p => new Date(p.fecha_pago) >= inicioMes).reduce((s,p)=>s+Number(p.monto_cobrado),0);
+    const totalAcum = pagos.reduce((s,p)=>s+Number(p.monto_cobrado),0);
+
+    contenido().innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <div style="width:52px;height:52px;border-radius:14px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:26px;height:26px;"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>
+          </div>
+          <div>
+            <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Suscripciones</h1>
+            <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Historial completo de pagos cobrados</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- KPIs -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.25rem;">
+        ${saKpi('MRR este mes', soles(totalMes), '#2563EB','#EFF6FF','<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>')}
+        ${saKpi('Total acumulado', soles(totalAcum), '#16A34A','#F0FDF4','<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>')}
+        ${saKpi('Total pagos', pagos.length, '#64748B','#F1F5F9','<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>')}
+      </div>
+
+      <!-- Tabla -->
+      <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;overflow:hidden;">
+        <div style="overflow-x:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:640px;">
+            <thead><tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
+              <th style="${thCss()}">Fecha</th>
+              <th style="${thCss()}">Hotel</th>
+              <th style="${thCss()}">Plan</th>
+              <th style="${thCss()}">Meses</th>
+              <th style="${thCss()}">Monto</th>
+              <th style="${thCss()}">Método</th>
+              <th style="${thCss()}">Código op.</th>
+            </tr></thead>
+            <tbody>
+              ${pagos.length===0
+                ?`<tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--texto-sub);">Sin pagos aún.</td></tr>`
+                :pagos.map(p=>`
+                  <tr style="border-bottom:1px solid var(--gris-borde);">
+                    <td style="${tdCss()};font-size:0.8rem;">${fechaCorta(p.fecha_pago)}</td>
+                    <td style="${tdCss()};font-weight:600;">${escapeHtml(p.hoteles?.nombre_comercial||'—')}</td>
+                    <td style="${tdCss()}">${p.hoteles?.plan==='pro'
+                      ?`<span style="font-size:0.7rem;font-weight:700;color:#7C3AED;background:#F5F3FF;padding:0.15rem 0.55rem;border-radius:999px;">PRO</span>`
+                      :`<span style="font-size:0.7rem;font-weight:700;color:#2563EB;background:#EFF6FF;padding:0.15rem 0.55rem;border-radius:999px;">BÁSICO</span>`}
+                    </td>
+                    <td style="${tdCss()};text-align:center;">${p.meses_renovados}</td>
+                    <td style="${tdCss()};font-weight:700;color:var(--verde);">${soles(p.monto_cobrado)}</td>
+                    <td style="${tdCss()};text-transform:capitalize;">${p.metodo_pago}</td>
+                    <td style="${tdCss()};font-family:monospace;font-size:0.78rem;color:var(--texto-sub);">${escapeHtml(p.codigo_operacion||'—')}</td>
+                  </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    `;
+  } catch(err){ contenido().innerHTML = errorBox('No se pudo cargar el historial', err.message); }
+}
+
 //  HOTEL › CAJA POR TURNOS (arqueo ciego, solo efectivo)
 // ════════════════════════════════════════════════════════════
 async function moduloCaja() {

@@ -123,7 +123,24 @@ async function getHoteles() {
     .select('*')
     .order('created_at', { ascending: false });
   if (error) throw error;
-  return data;
+
+  // Traer emails de dueños via perfiles_usuarios + RPC opcional
+  const { data: perfiles } = await db
+    .from('perfiles_usuarios')
+    .select('hotel_id, nombre_completo, user_id')
+    .eq('rol', 'admin');
+
+  let emailsMap = {};
+  try {
+    const { data: emailsData } = await db.rpc('fn_listar_emails_duenos');
+    if (emailsData) emailsData.forEach(e => { emailsMap[e.user_id] = e.email; });
+  } catch(_) {}
+
+  return (data || []).map(h => {
+    const perfil = (perfiles||[]).find(p => p.hotel_id === h.id);
+    const email = perfil ? (emailsMap[perfil.user_id] || 'ver en Auth') : '—';
+    return { ...h, _nombre_dueno: perfil?.nombre_completo || '—', _email_dueno: email };
+  });
 }
 
 // Dashboard superadmin
