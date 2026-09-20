@@ -40,66 +40,270 @@ async function moduloFacturacion() {
       .limit(150);
     if (error) throw error;
 
+    const lista = comps || [];
+    window._compsCache = {};
+    lista.forEach(c => window._compsCache[c.id] = c);
+
+    // Métricas
+    const totalComps   = lista.length;
+    const montoTotal   = lista.reduce((s,c) => s + Number(c.total||0), 0);
+    const totalFact    = lista.filter(c => c.tipo_doc === 'factura').length;
+    const totalBoletas = lista.filter(c => c.tipo_doc === 'boleta').length;
+    const totalEnviados= lista.filter(c => c.estado === 'ACEPTADO').length;
+    const pendientes   = lista.filter(c => c.estado === 'PENDIENTE_ENVIO').length;
+
+    // Filtro activo
+    window._factFiltro = window._factFiltro || 'Todos';
+
     contenido().innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:1rem;">
-        <div>
-          <div class="seccion-titulo">Facturación SUNAT</div>
-          <div class="seccion-sub">${(comps||[]).length} comprobante(s) · emisión ilimitada</div>
+      <!-- Header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <div style="width:52px;height:52px;border-radius:14px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          </div>
+          <div>
+            <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Facturación SUNAT</h1>
+            <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Gestiona tus comprobantes electrónicos de forma rápida y segura</p>
+          </div>
         </div>
-        <button style="${ST.btnPri}; width:auto; padding:0.65rem 1.2rem;" onclick="abrirEmitirComprobante()">+ Emitir comprobante</button>
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
+          <!-- Badge modo sin facturador -->
+          <span style="display:inline-flex;align-items:center;gap:0.45rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.78rem;font-weight:600;color:var(--texto-sub);">
+            <span style="width:8px;height:8px;border-radius:50%;background:#16A34A;"></span>
+            Modo sin facturador conectado
+          </span>
+          <button onclick="navegarA('config-sunat')" style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.6rem 0.9rem;font-size:0.82rem;font-weight:500;color:var(--texto-sub);cursor:pointer;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0M4.93 19.07a10 10 0 0 0 14.14 0M4.93 4.93L19.07 19.07"/></svg>
+            Configuración SUNAT
+          </button>
+          <button onclick="abrirEmitirComprobante()" style="width:auto;padding:0.6rem 1.1rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.83rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(26,63,166,0.3);display:flex;align-items:center;gap:0.45rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Emitir comprobante
+          </button>
+        </div>
       </div>
 
+      <!-- Banner info modo sin OSE -->
       ${!API_SUNAT.activa ? `
-        <div style="background:#EFF6FF; border:1px solid #BFDBFE; border-radius:10px; padding:0.85rem 1rem; margin-bottom:1rem; font-size:0.83rem; color:#1E40AF;">
-          ℹ️ Modo sin facturador conectado. Los comprobantes se guardan como <strong>PENDIENTE_ENVIO</strong> y puedes imprimirlos o enviarlos por WhatsApp. Cuando conectes tu OSE, se declararán a SUNAT.
-        </div>` : ''}
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:0.85rem 1.25rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+        <div style="display:flex;align-items:flex-start;gap:0.75rem;">
+          <div style="width:30px;height:30px;border-radius:50%;background:#2563EB;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:15px;height:15px;"><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/><circle cx="12" cy="12" r="10"/></svg>
+          </div>
+          <span style="font-size:0.82rem;color:#1E40AF;">Los comprobantes se guardan como <strong>PENDIENTE_ENVIO</strong> y puedes imprimirlos o enviarlos por WhatsApp. Cuando conectes tu OSE, se declararán automáticamente a SUNAT.</span>
+        </div>
+        <a href="#" style="font-size:0.82rem;font-weight:600;color:#2563EB;white-space:nowrap;text-decoration:none;display:flex;align-items:center;gap:0.3rem;">Más información <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a>
+      </div>` : ''}
 
-      <div class="card" style="padding:0; overflow:hidden;">
+      <!-- 5 tarjetas métricas -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:1rem;margin-bottom:1.5rem;">
+        ${factMetrica('Comprobantes', totalComps, 'Total registrado', '#2563EB', '#EFF6FF',
+          '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',false)}
+        ${factMetrica(soles(montoTotal), '', 'Monto total de comprobantes', '#16A34A', '#F0FDF4',
+          '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',false, true)}
+        ${factMetrica('Facturas', totalFact, 'emitidas', '#7C3AED', '#F5F3FF',
+          '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>',false)}
+        ${factMetrica('Boletas de venta', totalBoletas, 'emitidas', '#EA580C', '#FFF7ED',
+          '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/>',false)}
+        ${factMetrica('Enviados a SUNAT', totalEnviados, 'pendientes: '+pendientes, '#64748B', '#F1F5F9',
+          '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',false)}
+      </div>
+
+      <!-- Filtros por tipo + buscador + fechas + filtros -->
+      <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:1rem;">
+        <div style="display:flex;gap:0.35rem;flex:1;min-width:220px;">
+          ${[['Todos',totalComps],['Facturas',totalFact],['Boletas de venta',totalBoletas]].map(([label,cnt]) => `
+            <button onclick="filtrarFacturacion('${label}')" id="fact-btn-${label.replace(/\s/g,'_')}"
+              style="padding:0.45rem 0.9rem;border-radius:999px;font-size:0.82rem;font-weight:600;cursor:pointer;
+              background:${window._factFiltro===label?'var(--azul)':'white'};
+              color:${window._factFiltro===label?'white':'var(--texto-sub)'};
+              border:1.5px solid ${window._factFiltro===label?'transparent':'var(--gris-borde)'};
+              box-shadow:${window._factFiltro===label?'0 4px 12px rgba(37,99,235,0.3)':'none'};">
+              ${escapeHtml(label)} (${cnt})
+            </button>`).join('')}
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <div style="display:flex;align-items:center;gap:0.5rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.85rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="fact-buscar" placeholder="Buscar por número, cliente o tipo…" oninput="filtrarFactBuscar()" style="border:none;background:none;outline:none;font-size:0.82rem;width:200px;font-family:inherit;color:var(--texto);">
+          </div>
+          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.8rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            Todas las fechas
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.8rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+            Filtros
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabla de comprobantes -->
+      <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;overflow:hidden;margin-bottom:1rem;">
         <div style="overflow-x:auto;">
-          <table style="width:100%; border-collapse:collapse; font-size:0.85rem; min-width:720px;">
-            <thead><tr style="background:var(--gris-bg); text-align:left;">
-              <th style="${thCss()}">Comprobante</th><th style="${thCss()}">Tipo</th>
-              <th style="${thCss()}">Cliente</th><th style="${thCss()}">Total</th>
-              <th style="${thCss()}">Estado</th><th style="${thCss()}; text-align:right;">Acciones</th>
-            </tr></thead>
-            <tbody>
-              ${(comps||[]).length === 0 ? `<tr><td colspan="6" style="padding:2rem;text-align:center;color:var(--texto-sub);">Sin comprobantes emitidos aún.</td></tr>` :
-              comps.map(c => filaComprobante(c)).join('')}
+          <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:750px;">
+            <thead>
+              <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
+                <th style="${thCss()};width:40px;">#</th>
+                <th style="${thCss()}">COMPROBANTE</th>
+                <th style="${thCss()}">TIPO</th>
+                <th style="${thCss()}">CLIENTE</th>
+                <th style="${thCss()}">TOTAL</th>
+                <th style="${thCss()}">ESTADO</th>
+                <th style="${thCss()}">FECHA EMISIÓN</th>
+                <th style="${thCss()};text-align:right;">ACCIONES</th>
+              </tr>
+            </thead>
+            <tbody id="fact-tbody">
+              ${lista.length === 0
+                ? `<tr><td colspan="8" style="padding:3rem;text-align:center;color:var(--texto-sub);"><div style="font-size:2rem;margin-bottom:0.5rem;">📄</div>Sin comprobantes emitidos aún.</td></tr>`
+                : lista.map((c,i) => filaComprobante(c, i+1)).join('')}
             </tbody>
           </table>
         </div>
+        <!-- Paginación -->
+        <div style="padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--gris-borde);flex-wrap:wrap;gap:0.75rem;">
+          <span style="font-size:0.82rem;color:var(--texto-sub);">Mostrando 1 a ${lista.length} de ${lista.length} comprobantes</span>
+          <div style="display:flex;align-items:center;gap:0.5rem;">
+            <button style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <button style="width:32px;height:32px;border:none;border-radius:8px;background:var(--azul);color:white;font-weight:700;font-size:0.85rem;cursor:pointer;">1</button>
+            <button style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            <select style="border:1px solid var(--gris-borde);border-radius:8px;padding:0.3rem 0.6rem;font-size:0.82rem;color:var(--texto-sub);background:white;cursor:pointer;">
+              <option>10 por página</option><option>25 por página</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Banner inferior -->
+      <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:1.25rem 1.5rem;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;position:relative;overflow:hidden;">
+        <svg style="position:absolute;bottom:0;right:80px;opacity:0.09;" viewBox="0 0 300 80" width="300" height="80" preserveAspectRatio="none">
+          <path d="M0 60 Q75 20 150 50 Q225 80 300 40 L300 80 L0 80 Z" fill="#2563EB"/>
+        </svg>
+        <div style="width:46px;height:46px;border-radius:13px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0M4.93 19.07a10 10 0 0 0 14.14 0"/></svg>
+        </div>
+        <div style="flex:1;position:relative;">
+          <div style="font-weight:700;color:var(--texto);">Conecta tu facturador para enviar automáticamente a SUNAT</div>
+          <div style="font-size:0.82rem;color:var(--texto-sub);">Configura tu OSE y mantén tu facturación al día.</div>
+        </div>
+        <button onclick="navegarA('config-sunat')" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:10px;padding:0.6rem 1.1rem;font-size:0.83rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;white-space:nowrap;">
+          Configurar SUNAT
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
       </div>
     `;
-    window._compsCache = {};
-    (comps||[]).forEach(c => window._compsCache[c.id] = c);
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar facturación', err.message);
   }
 }
 
-function filaComprobante(c) {
-  const estados = {
-    ACEPTADO:        badge('Aceptado', '#F0FDF4', '#16A34A'),
-    PENDIENTE_ENVIO: badge('Pendiente', '#FFFBEB', '#92400E'),
-    RECHAZADO:       badge('Rechazado', '#FEF2F2', '#DC2626'),
-    ANULADO:         badge('Anulado', '#F1F5F9', '#64748B'),
-  };
-  const anulable = c.estado !== 'ANULADO' && c.tipo_doc !== 'nota_credito';
+function factMetrica(label, valor, sub, color, bg, icono, flecha=false, esSoles=false) {
   return `
-    <tr>
-      <td style="${tdCss()}; font-family:monospace; font-weight:600;">${escapeHtml(c.numero_completo)}</td>
-      <td style="${tdCss()}; font-size:0.78rem;">${NOMBRE_TIPO[c.tipo_doc] || c.tipo_doc}</td>
-      <td style="${tdCss()}">${escapeHtml(c.razon_social_rec || 'Cliente varios')}</td>
-      <td style="${tdCss()}; font-weight:600;">${soles(c.total)}</td>
-      <td style="${tdCss()}">${estados[c.estado] || c.estado}</td>
-      <td style="${tdCss()}; text-align:right; white-space:nowrap;">
-        <button style="${ST.btnSec}; padding:0.35rem 0.55rem; margin-left:0.2rem;" title="Imprimir ticket 80mm" onclick="imprimirTicket('${c.id}')">🖨️</button>
-        <button style="${ST.btnSec}; padding:0.35rem 0.55rem; margin-left:0.2rem;" title="Descargar PDF" onclick="descargarPDF('${c.id}')">📄</button>
-        <button style="${ST.btnSec}; padding:0.35rem 0.55rem; margin-left:0.2rem;" title="Enviar por WhatsApp" onclick="enviarComprobanteWA('${c.id}')">💬</button>
-        ${c.estado === 'PENDIENTE_ENVIO' && API_SUNAT.activa ? `<button style="${ST.btnOk}; padding:0.35rem 0.55rem; margin-left:0.2rem;" title="Reintentar envío" onclick="reintentarEnvio('${c.id}')">↻</button>` : ''}
-        ${anulable ? `<button style="${ST.btnDanger}; padding:0.35rem 0.55rem; margin-left:0.2rem;" title="Anular (nota de crédito)" onclick="anularComprobante('${c.id}')">✕</button>` : ''}
+    <div class="card" style="padding:1.1rem;position:relative;overflow:hidden;">
+      <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.5rem;">
+        <div style="width:40px;height:40px;border-radius:11px;background:${bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;">${icono}</svg>
+        </div>
+      </div>
+      <div style="font-size:${esSoles?'1.3':'1.65'}rem;font-weight:700;color:var(--texto);line-height:1.1;">${esSoles ? label : valor}</div>
+      <div style="font-size:0.75rem;color:var(--texto-sub);margin-top:0.2rem;">${esSoles ? valor||sub : label}</div>
+      ${sub && !esSoles ? `<div style="font-size:0.7rem;color:var(--texto-sub);">${sub}</div>` : ''}
+      <svg style="position:absolute;bottom:-8px;right:-8px;opacity:0.07;" viewBox="0 0 100 50" width="100" height="50">
+        <path d="M0 35 Q25 10 50 30 Q75 50 100 25 L100 50 L0 50 Z" fill="${color}"/>
+      </svg>
+    </div>`;
+}
+
+function filaComprobante(c, idx) {
+  const tipoLabel = { boleta:'Boleta de venta', factura:'Factura', nota_credito:'Nota de crédito' };
+  const tipoColor = { boleta:{ bg:'#EDE9FE', color:'#7C3AED' }, factura:{ bg:'#EFF6FF', color:'#2563EB' }, nota_credito:{ bg:'#FFF7ED', color:'#EA580C' } };
+  const tc = tipoColor[c.tipo_doc] || tipoColor.boleta;
+
+  const estadoMap = {
+    ACEPTADO:        ['Aceptado',       '#16A34A','#F0FDF4'],
+    PENDIENTE_ENVIO: ['Pendiente envío','#CA8A04','#FEFCE8'],
+    RECHAZADO:       ['Rechazado',      '#DC2626','#FEF2F2'],
+    ANULADO:         ['Anulado',        '#64748B','#F1F5F9'],
+  };
+  const [estLabel, estColor, estBg] = estadoMap[c.estado] || ['—','#64748B','#F1F5F9'];
+  const anulable = c.estado !== 'ANULADO' && c.tipo_doc !== 'nota_credito';
+  const fechaEm = new Date(c.created_at);
+  const docLabel = c.num_doc_rec ? (c.tipo_doc==='factura'?'RUC':'DNI')+': '+c.num_doc_rec : '';
+
+  return `
+    <tr class="fact-fila" data-tipo="${c.tipo_doc}" data-buscar="${(c.numero_completo+' '+(c.razon_social_rec||'')+' '+c.tipo_doc).toLowerCase()}" style="border-bottom:1px solid var(--gris-borde);">
+      <td style="${tdCss()};color:var(--texto-sub);">${idx}</td>
+      <td style="${tdCss()};font-family:monospace;font-weight:700;font-size:0.88rem;">${escapeHtml(c.numero_completo)}</td>
+      <td style="${tdCss()}">
+        <span style="font-size:0.75rem;font-weight:600;color:${tc.color};background:${tc.bg};padding:0.2rem 0.7rem;border-radius:999px;">
+          ${escapeHtml(tipoLabel[c.tipo_doc]||c.tipo_doc)}
+        </span>
+      </td>
+      <td style="${tdCss()}">
+        <div style="font-weight:600;font-size:0.85rem;">${escapeHtml(c.razon_social_rec||'Cliente varios')}</div>
+        ${docLabel?`<div style="font-size:0.72rem;color:var(--texto-sub);">${escapeHtml(docLabel)}</div>`:''}
+      </td>
+      <td style="${tdCss()};font-weight:700;">${soles(c.total)}</td>
+      <td style="${tdCss()}">
+        <span style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.72rem;font-weight:700;color:${estColor};background:${estBg};padding:0.25rem 0.75rem;border-radius:999px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:${estColor};"></span>
+          ${estLabel}
+        </span>
+      </td>
+      <td style="${tdCss()}">
+        <div style="font-weight:600;font-size:0.83rem;">${fechaEm.toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'})}</div>
+        <div style="font-size:0.72rem;color:var(--texto-sub);">${fechaEm.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'})}</div>
+      </td>
+      <td style="${tdCss()};text-align:right;">
+        <div style="display:flex;align-items:center;gap:0.3rem;justify-content:flex-end;">
+          <button title="Imprimir ticket 80mm" onclick="imprimirTicket('${c.id}')" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:7px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          </button>
+          <button title="Descargar PDF" onclick="descargarPDF('${c.id}')" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:7px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          </button>
+          <button title="Enviar por WhatsApp" onclick="enviarComprobanteWA('${c.id}')" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:7px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#16A34A;" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+            <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347zM11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/></svg>
+          </button>
+          <button title="Más opciones" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:7px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
+          </button>
+        </div>
       </td>
     </tr>`;
+}
+
+function filtrarFacturacion(tipo) {
+  window._factFiltro = tipo;
+  const lista = Object.values(window._compsCache||{});
+  document.querySelectorAll('[id^="fact-btn-"]').forEach(btn => {
+    const esActivo = btn.id === 'fact-btn-'+tipo.replace(/\s/g,'_');
+    btn.style.background = esActivo ? 'var(--azul)' : 'white';
+    btn.style.color = esActivo ? 'white' : 'var(--texto-sub)';
+    btn.style.borderColor = esActivo ? 'transparent' : 'var(--gris-borde)';
+    btn.style.boxShadow = esActivo ? '0 4px 12px rgba(37,99,235,0.3)' : 'none';
+  });
+  const mapa = { 'Todos': null, 'Facturas':'factura', 'Boletas de venta':'boleta' };
+  const filtro = mapa[tipo];
+  const filtrada = filtro ? lista.filter(c => c.tipo_doc===filtro) : lista;
+  const tbody = document.getElementById('fact-tbody');
+  if (tbody) tbody.innerHTML = filtrada.length
+    ? filtrada.map((c,i) => filaComprobante(c,i+1)).join('')
+    : `<tr><td colspan="8" style="padding:2.5rem;text-align:center;color:var(--texto-sub);">Sin comprobantes de este tipo.</td></tr>`;
+}
+
+function filtrarFactBuscar() {
+  const q = (document.getElementById('fact-buscar')?.value||'').toLowerCase();
+  document.querySelectorAll('.fact-fila').forEach(tr => {
+    tr.style.display = !q || tr.dataset.buscar.includes(q) ? '' : 'none';
+  });
 }
 
 
