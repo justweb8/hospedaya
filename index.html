@@ -650,11 +650,17 @@
     .paywall-card {
       background: white;
       border-radius: 20px;
-      padding: 2.5rem;
+      padding: 2rem 1.75rem;
       max-width: 440px;
       width: 100%;
-      text-align: center;
+      text-align: left;
       box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+      animation: paywall-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+
+    @keyframes paywall-in {
+      from { opacity:0; transform:scale(0.9) translateY(20px); }
+      to   { opacity:1; transform:scale(1)   translateY(0); }
     }
 
     .paywall-icono {
@@ -1174,40 +1180,85 @@
      ╚══════════════════════════════════════════════════╝ -->
 <div id="modal-paywall">
   <div class="paywall-card">
-    <div class="paywall-icono">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-      </svg>
-    </div>
-    <div class="paywall-titulo">Suscripción Vencida</div>
-    <p class="paywall-msg">
-      Tu plan ha expirado. Para continuar operando, renueva tu suscripción comunicándote con nosotros.
-    </p>
 
-    <div class="paywall-datos">
-      <div class="paywall-datos-titulo">Medios de pago</div>
-      <div class="paywall-dato">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
+    <!-- Icono y estado -->
+    <div style="text-align:center;margin-bottom:1.5rem;">
+      <div style="width:72px;height:72px;border-radius:50%;background:#FEF2F2;border:2px solid #FECACA;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:34px;height:34px;">
+          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
         </svg>
-        <span id="paywall-dato-yape"></span>
       </div>
-      <div class="paywall-dato">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>
-        </svg>
-        <span id="paywall-dato-transfer"></span>
+      <div id="paywall-badge" style="display:inline-block;font-size:0.72rem;font-weight:700;padding:0.25rem 0.85rem;border-radius:999px;background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;margin-bottom:0.75rem;">
+        SUSCRIPCIÓN VENCIDA
       </div>
+      <h2 style="font-size:1.4rem;font-weight:800;color:#111827;margin:0 0 0.5rem;">
+        Acceso bloqueado
+      </h2>
+      <p style="font-size:0.88rem;color:#6B7280;margin:0;line-height:1.5;">
+        Tu suscripción ha expirado. Renueva para seguir operando<br>sin perder ningún dato de tu hotel.
+      </p>
     </div>
 
-    <a id="btn-wa-paywall" class="btn-wa-paywall" target="_blank" rel="noopener">
-      <svg viewBox="0 0 24 24" fill="white" style="width:18px;height:18px">
+    <!-- Hotel info -->
+    <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;padding:0.9rem 1rem;margin-bottom:1.25rem;display:flex;align-items:center;gap:0.75rem;">
+      <div style="width:38px;height:38px;border-radius:9px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:800;font-size:1rem;color:#2563EB;" id="paywall-iniciales">HY</div>
+      <div>
+        <div style="font-weight:700;font-size:0.92rem;" id="paywall-hotel-nombre">Tu hotel</div>
+        <div style="font-size:0.75rem;color:#6B7280;" id="paywall-hotel-plan">Plan básico</div>
+      </div>
+      <div style="margin-left:auto;text-align:right;">
+        <div style="font-size:0.68rem;color:#6B7280;">Venció el</div>
+        <div style="font-size:0.82rem;font-weight:700;color:#DC2626;" id="paywall-fecha-vence">—</div>
+      </div>
+    </div>
+
+    <!-- Planes disponibles -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:1.25rem;">
+      <div style="border:1.5px solid #E5E7EB;border-radius:12px;padding:0.9rem;text-align:center;">
+        <div style="font-size:1.25rem;margin-bottom:0.35rem;">📦</div>
+        <div style="font-weight:700;font-size:0.88rem;">Plan Básico</div>
+        <div style="font-size:0.72rem;color:#6B7280;margin-top:0.2rem;">PMS hotelero completo</div>
+        <div style="font-size:0.95rem;font-weight:700;color:#2563EB;margin-top:0.5rem;" id="paywall-precio-basico">S/ 99/mes</div>
+      </div>
+      <div style="border:2px solid #7C3AED;border-radius:12px;padding:0.9rem;text-align:center;background:#FAFAF9;position:relative;">
+        <div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#7C3AED;color:white;font-size:0.65rem;font-weight:700;padding:0.15rem 0.6rem;border-radius:999px;">RECOMENDADO</div>
+        <div style="font-size:1.25rem;margin-bottom:0.35rem;">🚀</div>
+        <div style="font-weight:700;font-size:0.88rem;">Plan PRO</div>
+        <div style="font-size:0.72rem;color:#6B7280;margin-top:0.2rem;">+ Restaurante y cocina</div>
+        <div style="font-size:0.95rem;font-weight:700;color:#7C3AED;margin-top:0.5rem;" id="paywall-precio-pro">S/ 149/mes</div>
+      </div>
+    </div>
+
+    <!-- Datos de pago -->
+    <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:0.85rem 1rem;margin-bottom:1.1rem;">
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#92400E;margin-bottom:0.6rem;">💳 Formas de pago</div>
+      <div style="display:flex;flex-direction:column;gap:0.4rem;font-size:0.83rem;color:#78350F;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span>📱</span><span id="paywall-dato-yape">Yape / Plin</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span>🏦</span><span id="paywall-dato-transfer">Transferencia bancaria</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botón WhatsApp -->
+    <a id="btn-wa-paywall" class="btn-wa-paywall" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:0.6rem;background:linear-gradient(135deg,#16A34A,#15803D);color:white;text-decoration:none;padding:0.9rem 1rem;border-radius:12px;font-weight:700;font-size:0.95rem;margin-bottom:0.6rem;box-shadow:0 4px 14px rgba(22,163,74,0.35);">
+      <svg viewBox="0 0 24 24" fill="white" style="width:20px;height:20px;flex-shrink:0;">
         <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
         <path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/>
       </svg>
-      Contactar para renovar
+      Renovar ahora por WhatsApp
     </a>
-    <button class="paywall-cerrar-btn" id="paywall-cerrar">Solo ver mis datos (acceso de lectura)</button>
+
+    <!-- Botón acceso lectura -->
+    <button class="paywall-cerrar-btn" id="paywall-cerrar" style="width:100%;padding:0.6rem;background:none;border:1px solid #E5E7EB;border-radius:10px;font-size:0.82rem;color:#6B7280;cursor:pointer;">
+      Solo ver mis datos (acceso de lectura limitado)
+    </button>
+
+    <p style="text-align:center;font-size:0.7rem;color:#9CA3AF;margin-top:0.75rem;margin-bottom:0;">
+      🔒 Tus datos están seguros. Nada se borra al vencer la suscripción.
+    </p>
   </div>
 </div>
 
@@ -1267,9 +1318,40 @@ function mostrarApp() {
 
 // ── Paywall ──────────────────────────────────────────────────
 function mostrarPaywall() {
-  document.getElementById('paywall-dato-yape').textContent     = 'Yape / Plin: ' + DATOS_PAGO.yape;
-  document.getElementById('paywall-dato-transfer').textContent = 'Transferencia: ' + DATOS_PAGO.transferencia;
-  document.getElementById('btn-wa-paywall').href = WA_URL;
+  // Datos dinámicos del hotel
+  const hotel = SESSION.hotel || {};
+  const nombre = hotel.nombre_comercial || 'Tu hotel';
+  const plan   = hotel.plan || 'basico';
+  const vence  = hotel.fecha_vencimiento
+    ? new Date(hotel.fecha_vencimiento).toLocaleDateString('es-PE',{day:'numeric',month:'long',year:'numeric'})
+    : '—';
+  const estado = hotel.estado === 'suspendido' ? 'SUSPENDIDO' : 'SUSCRIPCIÓN VENCIDA';
+  const iniciales = nombre.trim().split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase()||'HY';
+
+  // Rellenar
+  const pw = document.getElementById('modal-paywall');
+  pw.querySelector('#paywall-badge').textContent          = estado;
+  pw.querySelector('#paywall-iniciales').textContent      = iniciales;
+  pw.querySelector('#paywall-hotel-nombre').textContent   = nombre;
+  pw.querySelector('#paywall-hotel-plan').textContent     = `Plan ${plan.toUpperCase()} · ${estado.toLowerCase()}`;
+  pw.querySelector('#paywall-fecha-vence').textContent    = vence;
+  pw.querySelector('#paywall-dato-yape').textContent      = 'Yape / Plin: ' + DATOS_PAGO.yape;
+  pw.querySelector('#paywall-dato-transfer').textContent  = 'Transferencia: ' + DATOS_PAGO.transferencia;
+
+  // Badge color según estado
+  if (hotel.estado === 'suspendido') {
+    pw.querySelector('#paywall-badge').style.background = '#FFF7ED';
+    pw.querySelector('#paywall-badge').style.color      = '#EA580C';
+    pw.querySelector('#paywall-badge').style.borderColor= '#FED7AA';
+  }
+
+  // Mensaje WA con nombre del hotel
+  const msgWa = encodeURIComponent(
+    `Hola! Soy el administrador de *${nombre}*. Quiero renovar mi suscripción a HospedaYa. ¿Me pueden ayudar?`
+  );
+  const waNum = WA_SUPERADMIN ? WA_SUPERADMIN.replace(/\D/g,'') : '';
+  document.getElementById('btn-wa-paywall').href = `https://wa.me/${waNum}?text=${msgWa}`;
+
   document.getElementById('modal-paywall').classList.add('visible');
 }
 
@@ -1283,12 +1365,22 @@ function mostrarBannerVencimiento(diasRestantes) {
   const texto  = document.getElementById('banner-venc-texto');
   const btnWa  = document.getElementById('btn-wa-renovar');
 
-  if (diasRestantes <= 0) {
-    banner.style.display = 'none';
-    return;
-  }
+  if (diasRestantes <= 0) { banner.style.display = 'none'; return; }
+
+  const urgente = diasRestantes <= 3;
   texto.textContent = `⚠️ Tu suscripción vence en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}. Renueva para no perder el acceso.`;
-  btnWa.href = WA_URL;
+
+  if (urgente) {
+    banner.style.background = '#FEF2F2';
+    banner.style.borderBottom = '2px solid #FECACA';
+    banner.style.color = '#DC2626';
+  }
+
+  // WhatsApp con nombre del hotel
+  const hotel = SESSION.hotel?.nombre_comercial || 'mi hotel';
+  const msgWa = encodeURIComponent(`Hola! Soy el admin de *${hotel}*. Mi suscripción vence en ${diasRestantes} día(s). Quiero renovar.`);
+  const waNum = WA_SUPERADMIN ? WA_SUPERADMIN.replace(/\D/g,'') : '';
+  btnWa.href = `https://wa.me/${waNum}?text=${msgWa}`;
   banner.style.display = 'flex';
 }
 
