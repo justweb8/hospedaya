@@ -231,7 +231,7 @@ async function moduloSaDashboard() {
           <span style="font-weight:700;">Hoteles registrados (${hoteles.length})</span>
           <button onclick="navegarA('sa-hoteles')" style="font-size:0.8rem;color:var(--azul);font-weight:600;background:none;border:none;cursor:pointer;">Ver todos →</button>
         </div>
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:640px;">
             <thead><tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
               <th style="${thCss()}">Hotel</th><th style="${thCss()}">Plan</th>
@@ -492,7 +492,7 @@ async function moduloSaHoteles() {
         </button>
       </div>
       <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;overflow:hidden;">
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:680px;">
             <thead><tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
               <th style="${thCss()}">Hotel / RUC</th>
@@ -882,7 +882,7 @@ async function moduloSaSuscripciones() {
 
       <!-- Tabla -->
       <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;overflow:hidden;">
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:640px;">
             <thead><tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
               <th style="${thCss()}">Fecha</th>
@@ -1092,7 +1092,7 @@ async function renderCajaAbierta() {
       </div>
 
       <!-- 5 tarjetas por método (ancho completo) -->
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.75rem;margin-bottom:1.5rem;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
         ${metodos.map(m => cajaTarjeta(m.label, res[m.key]||0, m.color, m.bg, m.icon,
           (movs||[]).filter(x => m.key==='egresos' ? x.tipo==='egreso' : x.metodo_pago===m.key && x.tipo==='ingreso').length
         )).join('')}
@@ -1122,7 +1122,7 @@ async function renderCajaAbierta() {
               </div>
             </div>
           </div>
-          <div style="overflow-x:auto;">
+          <div class="tabla-wrap">
             <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:620px;">
               <thead>
                 <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
@@ -3765,7 +3765,7 @@ async function moduloReservas() {
 
       <!-- Tabla sin card exterior (línea divisoria directa) -->
       <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;overflow:hidden;margin-top:0.85rem;margin-bottom:1rem;">
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:700px;">
             <thead>
               <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
@@ -4182,7 +4182,7 @@ async function moduloHuespedes() {
 
       <!-- Tabla -->
       <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;overflow:hidden;">
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:700px;">
             <thead>
               <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
@@ -4680,7 +4680,7 @@ async function moduloTiendita() {
 
       <!-- Tabla de productos -->
       <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;overflow:hidden;margin-bottom:1rem;">
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:750px;">
             <thead>
               <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
@@ -5132,7 +5132,7 @@ async function moduloHabitacionConfig() {
           </button>
         </div>
         <!-- Tabla tipos -->
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:580px;">
             <thead>
               <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
@@ -5213,7 +5213,7 @@ async function moduloHabitacionConfig() {
           </div>
         </div>
         <!-- Tabla habitaciones -->
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:540px;">
             <thead>
               <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
@@ -5448,7 +5448,7 @@ async function moduloPersonal() {
 
       <!-- Tabla -->
       <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;overflow:hidden;margin-bottom:1rem;">
-        <div style="overflow-x:auto;">
+        <div class="tabla-wrap">
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:600px;">
             <thead>
               <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
@@ -6852,7 +6852,7 @@ function renderComandaMesa(numMesa, comandaExistente, estadias) {
       <div style="font-weight:700;font-size:1.15rem;color:var(--verde);">Total: ${soles(totalPedido)}</div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 320px;gap:1.25rem;align-items:start;">
+    <div style="display:grid;grid-template-columns:1fr 320px;gap:1.25rem;align-items:start;" class="susc-grid">
       <!-- Carta -->
       <div>
         <!-- Filtros por sección -->

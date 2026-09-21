@@ -802,13 +802,6 @@
     }
     #contenido { background: var(--gris-bg); }
 
-    /* Dashboard responsive: apilar ocupación/turno en pantallas medianas */
-    @media (max-width: 900px) {
-      .dash-fila { grid-template-columns: 1fr !important; }
-      .rep-grid  { grid-template-columns: 1fr !important; }
-      .susc-grid { grid-template-columns: 1fr !important; }
-    }
-
     .badge-plan {
       display: inline-block;
       font-size: 0.7rem;
@@ -821,134 +814,182 @@
     .badge-plan.basico { background: #EFF6FF; color: #1D4ED8; }
     .badge-plan.pro    { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
 
-    /* ══════════════════════════════════════════════════
-       RESPONSIVE — laptop / tablet / celular
-       ══════════════════════════════════════════════════ */
+    /* ══════════════════════════════════════════════════════
+       RESPONSIVE COMPLETO
+       PC ≥1100px | Laptop 900-1100 | Tablet 600-900 | Móvil <600
+       ══════════════════════════════════════════════════════ */
 
-    /* ── LAPTOP chico / tablet horizontal (≤1100px) ───── */
-    @media (max-width: 1100px) {
-      .login-banner-overlay { padding: 2.25rem 2.25rem; }
-      .banner-features { margin-top: 1.75rem; gap: 0.75rem; }
-      .login-form-panel { max-width: 440px; padding: 2.5rem 2.5rem; }
-      #sidebar-wrap { width: 220px; }
-      #contenido { padding: 1.35rem; }
-      .topbar-search { max-width: 300px; }
+    /* ── Variables de layout ────────────────────────────── */
+    :root {
+      --sidebar-w: 210px;
+      --topbar-h:  60px;
+      --bottombar-h: 70px;
     }
 
-    /* ── TABLET vertical / móvil (≤900px): login apilado ─ */
+    /* ── LAPTOP (≤1100px) ───────────────────────────────── */
+    @media (max-width: 1100px) {
+      .login-banner-overlay { padding: 2rem; }
+      .banner-features { margin-top: 1.5rem; gap: 0.65rem; }
+      .login-form-panel { max-width: 420px; padding: 2rem; }
+      #sidebar-wrap { width: 195px; }
+      #contenido { padding: 1.25rem; }
+      .topbar-search { max-width: 260px; }
+
+      /* Grids de 2 columnas → mantener pero con gap menor */
+      .dash-fila { gap: 0.85rem; }
+    }
+
+    /* ── TABLET HORIZONTAL (≤900px) ─────────────────────── */
     @media (max-width: 900px) {
       #vista-login { flex-direction: column; }
+      .login-banner { display: block; flex: none; height: 200px; width: 100%; }
+      .login-banner-overlay { padding: 1.25rem; justify-content: flex-end; }
+      .banner-titulo { font-size: 1.55rem; }
+      .banner-sub, .banner-features, .banner-footer { display: none; }
+      .login-form-panel { max-width: 100%; margin-left: 0; clip-path: none; box-shadow: none; padding: 1.75rem 1.5rem 2rem; flex: 1; }
+      .login-card { max-width: 420px; }
 
-      /* En móvil mostramos una franja superior con la foto */
-      .login-banner {
-        display: block;
-        flex: none;
-        height: 210px;
-        width: 100%;
-      }
-      .login-banner-overlay {
-        padding: 1.5rem;
-        justify-content: flex-end;
-      }
-      .banner-titulo { font-size: 1.6rem; margin: 0.5rem 0 0.5rem; }
-      .banner-sub,
-      .banner-features,
-      .banner-footer { display: none; } /* se ocultan en franja compacta */
-
-      .login-form-panel {
-        max-width: 100%;
-        margin-left: 0;
-        clip-path: none;
-        box-shadow: none;
-        padding: 2rem 1.5rem 2.5rem;
-        flex: 1;
-      }
-      .login-card { max-width: 400px; }
-      .login-logo { margin-bottom: 1.75rem; }
+      /* Grids → una columna */
+      .dash-fila  { grid-template-columns: 1fr !important; }
+      .rep-grid   { grid-template-columns: 1fr !important; }
+      .susc-grid  { grid-template-columns: 1fr !important; }
     }
 
-    /* ── CELULAR (≤600px) ──────────────────────────────── */
-    @media (max-width: 600px) {
-      .login-banner { height: 160px; }
-      .banner-tag { font-size: 0.6rem; }
-      .banner-titulo { font-size: 1.35rem; }
-      .logo-icon-wrap { width: 58px; height: 58px; border-radius: 16px; }
-      .logo-icon-wrap svg { width: 30px; height: 30px; }
-      .logo-nombre { font-size: 1.5rem; }
-
-      /* App: topbar compacto */
-      #topbar { padding: 0 0.9rem; height: 60px; gap: 0.5rem; }
-      .topbar-search { max-width: none; padding: 0.5rem 0.75rem; }
-      .topbar-user-info { display: none; }
-      .topbar-bell { display: none; }
-
-      #contenido { padding: 1rem; }
-      .card { padding: 1.15rem; }
-      .seccion-titulo { font-size: 1.1rem; }
-
-      /* Banner de vencimiento en columna */
-      #banner-vencimiento {
-        flex-wrap: wrap;
-        top: 60px;
-        padding: 0.65rem 0.9rem;
-        font-size: 0.78rem;
-      }
-      #banner-vencimiento .btn-wa {
-        margin-left: 0;
-        width: 100%;
-        justify-content: center;
-        margin-top: 0.5rem;
-      }
-
-      .paywall-card { padding: 1.75rem 1.35rem; }
-
-      #toast-container { left: 0.75rem; right: 0.75rem; top: 0.75rem; }
-      .toast { max-width: 100%; }
-    }
-
-    /* ── SIDEBAR MÓVIL: barra inferior tipo app ────────── */
+    /* ── TABLET VERTICAL / MÓVIL GRANDE (≤768px) ───────── */
     @media (max-width: 768px) {
+      /* App shell */
       #app-body { flex-direction: column; }
 
+      /* Sidebar → barra inferior */
       #sidebar-wrap {
-        width: 100%;
-        height: auto;
-        position: fixed;
-        bottom: 0; left: 0;
-        z-index: 60;
-        padding: 0.4rem 0.4rem;
+        width: 100%; height: var(--bottombar-h);
+        position: fixed; bottom: 0; left: 0;
+        z-index: 60; padding: 0.35rem 0.4rem;
         flex-direction: row;
-        overflow-x: auto;
-        box-shadow: 0 -4px 20px rgba(0,0,0,0.25);
+        overflow-x: auto; overflow-y: hidden;
+        box-shadow: 0 -3px 20px rgba(0,0,0,0.2);
         -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
       }
-      .sidebar-brand, .sidebar-ayuda { display: none; }
       #sidebar-wrap::-webkit-scrollbar { display: none; }
-      #sidebar-wrap { scrollbar-width: none; }
+      .sidebar-brand, .sidebar-ayuda { display: none; }
 
       #sidebar {
         flex-direction: row;
-        gap: 0.25rem;
+        gap: 0.2rem;
         flex: 1;
+        align-items: center;
       }
 
       .nav-item {
         flex-direction: column;
-        gap: 0.2rem;
-        padding: 0.5rem 0.65rem;
-        font-size: 0.62rem;
+        gap: 0.15rem;
+        padding: 0.45rem 0.6rem;
+        font-size: 0.6rem;
         white-space: nowrap;
-        min-width: 66px;
+        min-width: 60px;
+        max-width: 80px;
         text-align: center;
         align-items: center;
+        border-radius: 10px;
       }
       .nav-item svg { width: 20px; height: 20px; }
-      .nav-item.activo { box-shadow: none; }
+      .nav-item.activo { box-shadow: none; background: rgba(37,99,235,0.15); }
       .nav-separador { display: none; }
 
-      /* dejar espacio para la barra inferior fija */
-      #contenido { padding-bottom: 90px; }
+      /* Contenido principal */
+      #main-wrap { padding-bottom: var(--bottombar-h); }
+      #contenido { padding: 0.9rem; }
+      .card { padding: 1rem; }
+
+      /* Topbar compacto */
+      #topbar { padding: 0 0.85rem; gap: 0.5rem; }
+      .topbar-search { flex: 1; max-width: none; }
+      .topbar-search kbd { display: none; }
+      .topbar-user-info { display: none; }
+
+      /* Panel búsqueda — ancho completo */
+      #panel-busqueda { width: calc(100vw - 1.7rem) !important; left: 0 !important; }
+
+      /* Panel notificaciones — ancho completo */
+      #panel-notificaciones { width: calc(100vw - 1rem) !important; right: 0.5rem !important; }
+
+      /* Grids de múltiples columnas → una columna */
+      .dash-fila  { grid-template-columns: 1fr !important; }
+      .rep-grid   { grid-template-columns: 1fr !important; }
+      .susc-grid  { grid-template-columns: 1fr !important; }
+
+      /* Paywall */
+      .paywall-card { padding: 1.5rem 1.25rem; max-width: 100%; margin: 0.75rem; }
+
+      /* Toasts */
+      #toast-container { left: 0.75rem; right: 0.75rem; top: 0.75rem; }
+      .toast { max-width: 100%; }
+
+      /* Banner vencimiento */
+      #banner-vencimiento { flex-wrap: wrap; top: 60px; font-size: 0.78rem; }
+      #banner-vencimiento .btn-wa { width: 100%; justify-content: center; margin: 0.4rem 0 0; }
+
+      /* Modales */
+      .modal-box {
+        width: 96vw !important;
+        max-width: 96vw !important;
+        margin: auto 2vw;
+        max-height: 88vh;
+        overflow-y: auto;
+      }
     }
+
+    /* ── MÓVIL PEQUEÑO (≤600px) ─────────────────────────── */
+    @media (max-width: 600px) {
+      .login-banner { height: 155px; }
+      .banner-titulo { font-size: 1.3rem; }
+      .logo-icon-wrap { width: 54px; height: 54px; }
+      .logo-icon-wrap svg { width: 28px; height: 28px; }
+      .logo-nombre { font-size: 1.45rem; }
+
+      #contenido { padding: 0.75rem; }
+      .card { padding: 0.9rem; border-radius: 12px; }
+      .seccion-titulo { font-size: 1.05rem; }
+
+      /* Topbar mínimo */
+      #topbar { padding: 0 0.65rem; gap: 0.35rem; height: 56px; }
+      .topbar-bell { width: 36px; height: 36px; }
+
+      /* Tablas → scroll horizontal */
+      .tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { font-size: 0.78rem; }
+      th, td { padding: 0.55rem 0.65rem !important; }
+    }
+
+    /* ── CLASES UTILITARIAS RESPONSIVE ─────────────────── */
+
+    /* Grid que se apila en móvil */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 0.5rem; }
+
+    @media (max-width: 600px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .grid-3 { grid-template-columns: 1fr 1fr; }
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      .grid-kpi { grid-template-columns: 1fr 1fr !important; }
+      /* Ocultar columnas secundarias en tablas */
+      .col-hide-mobile { display: none !important; }
+      /* Inputs y botones: ancho completo */
+      .btn-full-mobile { width: 100% !important; }
+      /* Texto más pequeño */
+      h1 { font-size: 1.25rem !important; }
+    }
+
+    @media (max-width: 768px) {
+      .grid-sidebar { grid-template-columns: 1fr !important; }
+      /* Ocultar en tablet */
+      .col-hide-tablet { display: none !important; }
+    }
+
+    /* Scroll horizontal seguro para tablas */
+    .tabla-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
 
     /* Respeta usuarios que prefieren menos movimiento */
     @media (prefers-reduced-motion: reduce) {
@@ -1206,7 +1247,7 @@
       </div>
 
       <!-- Contenido dinámico -->
-      <main id="contenido">
+      <main id="contenido" style="min-height:0;">
         <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--texto-sub);font-size:0.9rem;">
           Cargando módulo…
         </div>
