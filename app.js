@@ -274,87 +274,149 @@ function saKpi(label, valor, color, bg, icono) {
 async function renderCardConfigGlobal() {
   try {
     const { data: cfg } = await db.from('configuracion_global')
-      .select('token_dni_ruc, proveedor_dni_ruc, actualizado_el')
+      .select('token_dni_ruc, proveedor_dni_ruc, token_factural, fl_empresa_id, fl_endpoint, proveedor_emision, actualizado_el')
       .eq('id', 1).single();
 
-    const tieneToken = !!(cfg?.token_dni_ruc);
-    const proveedor  = cfg?.proveedor_dni_ruc || 'apis_net_pe';
-    const actualizado = cfg?.actualizado_el
+    const tieneTokenDNI = !!(cfg?.token_dni_ruc);
+    const tieneTokenFL  = !!(cfg?.token_factural);
+    const proveedorDNI  = cfg?.proveedor_dni_ruc || 'apis_net_pe';
+    const actualizado   = cfg?.actualizado_el
       ? new Date(cfg.actualizado_el).toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'})
       : '—';
 
     return `
+      <!-- FacturaLibre Config -->
       <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.5rem;margin-top:1.25rem;">
-        <!-- Header -->
         <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;">
           <div style="display:flex;align-items:center;gap:0.85rem;">
-            <div style="width:44px;height:44px;border-radius:12px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
+            <div style="width:44px;height:44px;border-radius:12px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             </div>
             <div>
-              <div style="font-weight:700;font-size:1rem;">Servicio Global de Identidad (DNI / RUC)</div>
-              <div style="font-size:0.75rem;color:var(--texto-sub);">Token maestro · Abastece a TODOS los hoteles · Nunca expuesto al cliente</div>
+              <div style="font-weight:700;font-size:1rem;">FacturaLibre — Plan Distribuidores</div>
+              <div style="font-size:0.75rem;color:var(--texto-sub);">Token maestro de emisión SUNAT · Compartido entre todos los hoteles</div>
             </div>
           </div>
           <span style="font-size:0.72rem;font-weight:700;padding:0.25rem 0.75rem;border-radius:999px;
-            background:${tieneToken?'#F0FDF4':'#FEF2F2'};
-            color:${tieneToken?'#16A34A':'#DC2626'};
-            border:1px solid ${tieneToken?'#BBF7D0':'#FECACA'};">
-            ${tieneToken?'✅ Token activo':'⚠️ Sin configurar'}
+            background:${tieneTokenFL?'#F0FDF4':'#FEF2F2'};color:${tieneTokenFL?'#16A34A':'#DC2626'};
+            border:1px solid ${tieneTokenFL?'#BBF7D0':'#FECACA'};">
+            ${tieneTokenFL?'✅ Activo':'⚠️ Sin configurar'}
           </span>
         </div>
 
-        <!-- Form -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;" class="rep-grid">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.85rem;" class="rep-grid">
           <div>
-            <label style="${ST.label}">Proveedor</label>
-            <select style="${ST.input}" id="sa-proveedor-doc">
-              <option value="apis_net_pe" ${proveedor==='apis_net_pe'?'selected':''}>Apis.net.pe (recomendado)</option>
-              <option value="migo" ${proveedor==='migo'?'selected':''}>Migo</option>
-            </select>
+            <label style="${ST.label}">Token distribuidor FacturaLibre</label>
+            <div style="position:relative;">
+              <input style="${ST.input};padding-right:2.5rem;" id="sa-token-fl" type="password" placeholder="${tieneTokenFL?'••••••••••••••• (activo)':'Token del plan distribuidores'}">
+              <button type="button" onclick="togglePass('sa-token-fl',this)" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94A3B8;padding:0;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
           </div>
           <div>
-            <label style="${ST.label}">Última actualización</label>
-            <div style="${ST.input};background:var(--gris-bg);color:var(--texto-sub);font-size:0.85rem;">${actualizado}</div>
+            <label style="${ST.label}">Endpoint FacturaLibre</label>
+            <input style="${ST.input}" id="sa-fl-endpoint" value="${escapeHtml(cfg?.fl_endpoint||'https://facturalibre.net/api/v1')}" placeholder="https://facturalibre.net/api/v1">
           </div>
         </div>
 
-        <div style="${ST.grupo}">
-          <label style="${ST.label}">Token maestro de consultas</label>
-          <div style="position:relative;">
-            <input style="${ST.input};padding-right:2.5rem;" id="sa-token-doc"
-              type="password" placeholder="${tieneToken?'••••••••••••••••••••':'Pega aquí el token de '+proveedor}">
-            <button type="button" onclick="togglePass('sa-token-doc',this)"
-              style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94A3B8;padding:0;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+          <button onclick="guardarConfigFL()" style="width:auto;padding:0.65rem 1.1rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.85rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
+            💾 Guardar config FacturaLibre
+          </button>
+          <button onclick="probarTokenFL()" style="width:auto;padding:0.65rem 1rem;background:white;border:1.5px solid var(--gris-borde);border-radius:10px;font-size:0.83rem;font-weight:600;cursor:pointer;color:var(--texto-sub);">
+            🔌 Probar conexión
+          </button>
+        </div>
+
+        <!-- DNI/RUC -->
+        <div style="border-top:1px solid var(--gris-borde);padding-top:1.25rem;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:700;font-size:0.92rem;">Servicio de Identidad (DNI / RUC)</div>
+              <div style="font-size:0.73rem;color:var(--texto-sub);">Token centralizado · Los hoteles NUNCA lo ven</div>
+            </div>
+            <span style="font-size:0.72rem;font-weight:700;padding:0.2rem 0.65rem;border-radius:999px;
+              background:${tieneTokenDNI?'#F0FDF4':'#FEF2F2'};color:${tieneTokenDNI?'#16A34A':'#DC2626'};
+              border:1px solid ${tieneTokenDNI?'#BBF7D0':'#FECACA'};">
+              ${tieneTokenDNI?'✅ Token activo':'⚠️ Sin configurar'}
+            </span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.85rem;" class="rep-grid">
+            <div>
+              <label style="${ST.label}">Proveedor</label>
+              <select style="${ST.input}" id="sa-proveedor-doc">
+                <option value="apis_net_pe" ${proveedorDNI==='apis_net_pe'?'selected':''}>Apis.net.pe</option>
+                <option value="migo" ${proveedorDNI==='migo'?'selected':''}>Migo</option>
+              </select>
+            </div>
+            <div>
+              <label style="${ST.label}">Última actualización</label>
+              <div style="${ST.input};background:var(--gris-bg);color:var(--texto-sub);font-size:0.85rem;">${actualizado}</div>
+            </div>
+          </div>
+          <div style="${ST.grupo};margin-bottom:0.85rem;">
+            <label style="${ST.label}">Token maestro DNI/RUC</label>
+            <div style="position:relative;">
+              <input style="${ST.input};padding-right:2.5rem;" id="sa-token-doc" type="password" placeholder="${tieneTokenDNI?'•••••••••• (activo)':'Token Apis.net.pe o Migo'}">
+              <button type="button" onclick="togglePass('sa-token-doc',this)" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94A3B8;padding:0;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              </button>
+            </div>
+            <div style="font-size:0.7rem;color:var(--texto-sub);margin-top:0.3rem;">🔒 Almacenado en BD · nunca expuesto al browser · activa autocompletado en TODOS los hoteles</div>
+          </div>
+          <div style="display:flex;gap:0.5rem;">
+            <button onclick="guardarTokenGlobal()" style="width:auto;padding:0.6rem 1rem;background:linear-gradient(135deg,#16A34A,#15803D);color:white;border:none;border-radius:9px;font-size:0.83rem;font-weight:600;cursor:pointer;">
+              💾 Guardar token DNI/RUC
+            </button>
+            <button onclick="probarTokenGlobal()" style="width:auto;padding:0.6rem 0.9rem;background:white;border:1.5px solid var(--gris-borde);border-radius:9px;font-size:0.82rem;font-weight:600;cursor:pointer;color:var(--texto-sub);">
+              🔍 Probar
             </button>
           </div>
-          <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.35rem;">
-            🔒 Este token se almacena cifrado en la BD. Los hoteles NUNCA pueden verlo ni accederlo directamente.
-            Activa el autocompletado de DNI/RUC en el check-in de todos los hoteles.
-          </div>
-        </div>
-
-        ${tieneToken?`
-        <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.82rem;color:#1D4ED8;">
-          💡 El token actual seguirá activo si dejas el campo vacío al guardar.
-        </div>`:''}
-
-        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-          <button onclick="guardarTokenGlobal()" style="width:auto;padding:0.65rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
-            💾 Guardar token global
-          </button>
-          <button onclick="probarTokenGlobal()" style="width:auto;padding:0.65rem 1.1rem;background:white;border:1.5px solid var(--gris-borde);border-radius:10px;font-size:0.85rem;font-weight:600;cursor:pointer;color:var(--texto-sub);">
-            🔍 Probar con DNI de prueba
-          </button>
         </div>
       </div>
     `;
   } catch(err) {
     return `<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:12px;padding:1rem;margin-top:1rem;font-size:0.83rem;color:#DC2626;">
-      Error al cargar config global: ${escapeHtml(err.message)}
-    </div>`;
+      Error al cargar config global: ${escapeHtml(err.message)}</div>`;
   }
+}
+
+async function guardarConfigFL() {
+  const token    = document.getElementById('sa-token-fl')?.value?.trim();
+  const endpoint = document.getElementById('sa-fl-endpoint')?.value?.trim() || 'https://facturalibre.net/api/v1';
+  const btn      = document.querySelector('[onclick="guardarConfigFL()"]');
+  const orig     = btn?.innerHTML;
+  if (btn) { btn.disabled=true; btn.innerHTML='Guardando…'; }
+  try {
+    const update = { fl_endpoint: endpoint, proveedor_emision: 'facturalibre', actualizado_el: new Date().toISOString() };
+    if (token) update.token_factural = token;
+    const { error } = await db.from('configuracion_global').update(update).eq('id', 1);
+    if (error) throw error;
+    toast('✅ FacturaLibre configurado', 'Token guardado · todos los hoteles actualizados', 'ok');
+    if (token && document.getElementById('sa-token-fl')) document.getElementById('sa-token-fl').value = '';
+    moduloSaDashboard();
+  } catch(err) { toast('Error', err.message, 'error'); }
+  finally { if (btn) { btn.disabled=false; btn.innerHTML=orig; } }
+}
+
+async function probarTokenFL() {
+  const btn  = document.querySelector('[onclick="probarTokenFL()"]');
+  const orig = btn?.innerHTML;
+  if (btn) { btn.disabled=true; btn.innerHTML='Probando…'; }
+  try {
+    const { data: gl } = await db.from('configuracion_global').select('fl_endpoint,token_factural').eq('id',1).single();
+    if (!gl?.token_factural) { toast('Sin token','Guarda el token primero','warn'); return; }
+    const base = (gl.fl_endpoint||'https://facturalibre.net/api/v1').replace(/\/$/,'');
+    const endpoint = base + '/ping';
+    const r = await fetch(endpoint, {
+      method:'GET',
+      headers:{ 'Authorization':'Bearer ' + gl.token_factural, 'Accept':'application/json' },
+    });
+    if (r.ok) toast('✅ FacturaLibre conectado','Credenciales válidas','ok');
+    else { const d=await r.json().catch(()=>({})); toast('❌ Error',d.message||'HTTP '+r.status,'error'); }
+  } catch(err) { toast('❌ Sin conexión',err.message,'error'); }
+  finally { if (btn) { btn.disabled=false; btn.innerHTML=orig; } }
 }
 
 async function guardarTokenGlobal() {
@@ -371,7 +433,7 @@ async function guardarTokenGlobal() {
     const { error } = await db.from('configuracion_global').update(update).eq('id', 1);
     if (error) throw error;
 
-    toast('✅ Token global guardado', `Proveedor: ${proveedor} · Todos los hoteles actualizados`, 'ok');
+    toast('✅ Token global guardado', 'Proveedor: ' + proveedor + ' · Todos los hoteles actualizados', 'ok');
     document.getElementById('sa-token-doc').value = '';
     moduloSaDashboard(); // recargar para actualizar el badge
   } catch(err) {
@@ -502,6 +564,12 @@ async function abrirGestionHotel(hotelId) {
 
     const dias = susc?.dias_restantes ?? 0;
 
+    // Cargar cuota CPE del hotel
+    const { data: cuotaData } = await db.rpc('fn_verificar_cuota_cpe', { p_hotel_id: hotelId }).catch(()=>({data:null}));
+    const cuota = cuotaData || { limite:150, emitidos:0, disponibles:150, puede_emitir:true };
+    const pctCuota = Math.min(100, Math.round((cuota.emitidos/cuota.limite)*100));
+    const colorCuota = pctCuota>=90?'#DC2626':pctCuota>=70?'#EA580C':'#16A34A';
+
     abrirModal(`Gestionar: ${escapeHtml(susc?.nombre_comercial||'Hotel')}`, `
       <!-- Info del hotel -->
       <div style="background:var(--gris-bg);border-radius:12px;padding:1rem;margin-bottom:1.25rem;">
@@ -557,8 +625,40 @@ async function abrirGestionHotel(hotelId) {
         <button onclick="resetearPassDueno('${perfil?.user_id||''}')" style="white-space:nowrap;padding:0.6rem 1rem;background:#EA580C;color:white;border:none;border-radius:9px;font-size:0.83rem;font-weight:600;cursor:pointer;">Resetear</button>
       </div>
 
-      <!-- 5. Suspender / Activar -->
-      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--rojo);margin-bottom:0.65rem;">5 · Estado del hotel</div>
+      <!-- 6. Cuota de comprobantes CPE -->
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--azul);margin-bottom:0.65rem;">6 · Cuota de comprobantes (CPE / mes)</div>
+      <div style="background:var(--gris-bg);border-radius:10px;padding:0.85rem 1rem;margin-bottom:0.75rem;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+          <span style="font-size:0.82rem;font-weight:600;">Uso del mes</span>
+          <span style="font-size:0.85rem;font-weight:700;color:${colorCuota};">${cuota.emitidos} / ${cuota.limite}</span>
+        </div>
+        <div style="height:8px;background:var(--gris-borde);border-radius:999px;overflow:hidden;margin-bottom:0.4rem;">
+          <div style="width:${pctCuota}%;height:100%;background:${colorCuota};border-radius:999px;"></div>
+        </div>
+        <div style="font-size:0.72rem;color:var(--texto-sub);">${cuota.disponibles} disponibles · mes ${cuota.mes||new Date().toISOString().slice(0,7)}</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1.25rem;">
+        <div>
+          <label style="${ST.label}">Límite base (mes)</label>
+          <input style="${ST.input}" id="cuota-limite" type="number" min="1" value="${cuota.limite}" placeholder="150">
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:flex-end;">
+          <button onclick="guardarLimiteCuota('${hotelId}')" style="padding:0.6rem;background:white;border:1.5px solid var(--azul);border-radius:9px;font-size:0.83rem;font-weight:600;color:var(--azul);cursor:pointer;">
+            Actualizar límite
+          </button>
+        </div>
+      </div>
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#16A34A;margin-bottom:0.5rem;">Ampliar cuota (créditos extra este mes)</div>
+      <div style="display:flex;gap:0.4rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+        ${[10,25,50,100].map(n=>`
+          <button onclick="ampliarCuotaCPE('${hotelId}',${n})"
+            style="flex:1;padding:0.55rem 0.25rem;background:#F0FDF4;color:#16A34A;border:1.5px solid #16A34A;border-radius:9px;font-size:0.82rem;font-weight:700;cursor:pointer;min-width:55px;">
+            +${n}
+          </button>`).join('')}
+      </div>
+
+      <!-- 7. Estado del hotel -->
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--rojo);margin-bottom:0.65rem;">7 · Estado del hotel</div>
       <div style="display:flex;gap:0.5rem;">
         ${susc?.estado==='suspendido'
           ?`<button onclick="cambiarEstadoHotel('${hotelId}','activo')" style="flex:1;padding:0.65rem;background:#16A34A;color:white;border:none;border-radius:9px;font-size:0.85rem;font-weight:600;cursor:pointer;">✅ Reactivar hotel</button>`
@@ -592,6 +692,29 @@ async function abrirGestionHotel(hotelId) {
     });
 
   } catch(err){ toast('Error al cargar',err.message,'error'); }
+}
+
+async function ampliarCuotaCPE(hotelId, creditos) {
+  try {
+    const { data, error } = await db.rpc('fn_ampliar_cuota_cpe', {
+      p_hotel_id: hotelId, p_creditos: creditos
+    });
+    if (error) throw error;
+    toast('✅ +' + creditos + ' CPE agregados', 'Nuevo total: ' + data.emitidos + '/' + data.limite + ' · ' + data.disponibles + ' disponibles', 'ok');
+    abrirGestionHotel(hotelId); // recargar modal
+  } catch(err) { toast('Error', err.message, 'error'); }
+}
+
+async function guardarLimiteCuota(hotelId) {
+  const limite = parseInt(document.getElementById('cuota-limite')?.value) || 150;
+  if (limite < 1) { toast('Límite inválido','','warn'); return; }
+  try {
+    const { error } = await db.from('hoteles')
+      .update({ limite_cpe_mes: limite }).eq('id', hotelId);
+    if (error) throw error;
+    toast('✅ Límite actualizado', limite + ' CPE/mes para este hotel', 'ok');
+    abrirGestionHotel(hotelId);
+  } catch(err) { toast('Error', err.message, 'error'); }
 }
 
 async function cambiarPlanHotel(hotelId, plan, btn) {

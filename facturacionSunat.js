@@ -1,37 +1,83 @@
 // ============================================================
 // HospedaYa — facturacionSunat.js
-// FASE 5: Facturación SUNAT + Motor Migo + tickets térmicos 80mm
+// Motor de emisión: FacturaLibre (Plan Distribuidores)
+// Identidad DNI/RUC: Migo vía RPC centralizada (SuperAdmin)
 // ============================================================
 
 // ════════════════════════════════════════════════════════════
-//  CONFIGURACIÓN DINÁMICA — se carga desde configuracion_sunat
-//  El token NUNCA está hardcodeado aquí. Se lee de la BD.
+//  CONFIG DINÁMICA — se carga desde BD al iniciar módulo
 // ════════════════════════════════════════════════════════════
 const API_SUNAT = {
-  activa:      false,
-  proveedor:   'migo',
-  url_emision: 'https://api.migo.pe/api/v1/',
-  token:       '',
-  ruc_emisor:  '',
-  razon_social:'',
-  modo_prod:   false,
+  activa:       false,
+  proveedor:    'facturalibre',
+  endpoint:     'https://facturalibre.net/api/v1',
+  token:        '',        // Token distribuidor FacturaLibre
+  empresa_id:   '',        // ID empresa del hotel en FacturaLibre
+  ruc_emisor:   '',
+  razon_social: '',
+  modo_prod:    false,
 };
 
 async function cargarConfigSunat() {
   if (!SESSION.hotel) return;
   try {
-    const { data } = await db.from('configuracion_sunat')
+    // 1. Config del hotel (series, usuario SOL, etc.)
+    const { data: cfg } = await db.from('configuracion_sunat')
       .select('*').eq('hotel_id', SESSION.hotel.id).single();
-    if (data?.token_api) {
+
+    // 2. Token FacturaLibre desde configuracion_global (solo superadmin puede verlo)
+    //    Para los hoteles, la RPC intermedia la petición — el token nunca llega al browser
+    const { data: gl } = await db.from('configuracion_global')
+      .select('fl_endpoint, proveedor_emision')
+      .eq('id', 1).single();
+
+    if (cfg?.token_api) {
+      // Si el hotel tiene su propio token de FacturaLibre (empresa propia)
       API_SUNAT.activa      = true;
-      API_SUNAT.token       = data.token_api;
-      API_SUNAT.url_emision = data.api_endpoint || 'https://api.migo.pe/api/v1/';
-      API_SUNAT.proveedor   = data.proveedor_api || 'migo';
-      API_SUNAT.ruc_emisor  = data.ruc_emisor  || '';
-      API_SUNAT.razon_social= data.razon_social || '';
-      API_SUNAT.modo_prod   = data.modo_produccion || false;
+      API_SUNAT.token       = cfg.token_api;
+      API_SUNAT.empresa_id  = cfg.fl_empresa_id || '';
+      API_SUNAT.endpoint    = gl?.fl_endpoint || cfg.api_endpoint || 'https://facturalibre.net/api/v1';
+      API_SUNAT.proveedor   = gl?.proveedor_emision || 'facturalibre';
+      API_SUNAT.ruc_emisor  = cfg.ruc_emisor   || '';
+      API_SUNAT.razon_social= cfg.razon_social  || '';
+      API_SUNAT.modo_prod   = cfg.modo_produccion || false;
     }
   } catch(_) {}
+}
+
+// ════════════════════════════════════════════════════════════
+//  CUOTAS — verificar antes de emitir
+// ════════════════════════════════════════════════════════════
+let _cuotaCache = null;
+
+async function verificarCuotaCPE() {
+  try {
+    const { data, error } = await db.rpc('fn_verificar_cuota_cpe', {
+      p_hotel_id: SESSION.hotel.id
+    });
+    if (error) throw error;
+    _cuotaCache = data;
+    return data;
+  } catch(e) {
+    console.warn('Cuota CPE:', e.message);
+    return { puede_emitir: true, disponibles: 999, emitidos: 0, limite: 150 };
+  }
+}
+
+function mostrarAlertaCuota(cuota) {
+  const pct = Math.round((cuota.emitidos / cuota.limite) * 100);
+  if (cuota.disponibles <= 0) {
+    toast(
+      '🚫 Límite de comprobantes alcanzado',
+      `Has emitido ${cuota.emitidos} de ${cuota.limite} CPE este mes. Contacta a soporte para ampliar tu cuota.`,
+      'error', 0  // 0 = no se cierra solo
+    );
+    return false;
+  }
+  if (cuota.disponibles <= 10) {
+    toast(`⚠️ Cuota casi agotada`, `Solo quedan ${cuota.disponibles} comprobantes disponibles este mes.`, 'warn', 6000);
+  }
+  return true;
 }
 
 
@@ -48,8 +94,29 @@ const NOMBRE_TIPO = { boleta: 'BOLETA DE VENTA', factura: 'FACTURA', nota_credit
 async function moduloFacturacion() {
   skeleton();
   try {
-    await cargarConfigSunat(); // carga token Migo desde BD
+    await cargarConfigSunat();
     if (!SESSION.turnoActivo) SESSION.turnoActivo = await getTurnoAbierto();
+
+    // Cargar cuota mensual
+    const cuota = await verificarCuotaCPE();
+    _cuotaCache = cuota;
+    const pctUso = Math.min(100, Math.round((cuota.emitidos / cuota.limite) * 100));
+    const colorBarra = pctUso >= 90 ? '#DC2626' : pctUso >= 70 ? '#EA580C' : '#16A34A';
+    const bannerCuota = `
+      <div style="display:flex;align-items:center;gap:1rem;background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:0.9rem 1.1rem;margin-bottom:1rem;flex-wrap:wrap;">
+        <div style="flex:1;min-width:200px;">
+          <div style="display:flex;justify-content:space-between;font-size:0.82rem;margin-bottom:0.4rem;">
+            <span style="font-weight:600;">Comprobantes este mes</span>
+            <span style="font-weight:700;color:${colorBarra};">${cuota.emitidos} / ${cuota.limite}</span>
+          </div>
+          <div style="height:8px;background:var(--gris-borde);border-radius:999px;overflow:hidden;">
+            <div style="width:${pctUso}%;height:100%;background:${colorBarra};border-radius:999px;transition:width 0.5s;"></div>
+          </div>
+          <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.3rem;">${cuota.disponibles} disponibles · mes ${cuota.mes}</div>
+        </div>
+        ${pctUso >= 90 ? `<div style="font-size:0.78rem;font-weight:600;color:#DC2626;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;padding:0.4rem 0.75rem;">⚠️ ${cuota.disponibles <= 0 ? 'Cuota agotada' : 'Cuota casi agotada'}</div>` : ''}
+      </div>
+    `;
 
     const { data: comps, error } = await db
       .from('comprobantes_sunat')
@@ -75,6 +142,7 @@ async function moduloFacturacion() {
     window._factFiltro = window._factFiltro || 'Todos';
 
     contenido().innerHTML = `
+      ${bannerCuota}
       <!-- Header -->
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem;">
         <div style="display:flex;align-items:center;gap:1rem;">
@@ -459,6 +527,14 @@ function abrirEmitirComprobante() {
         p_referencia_nc: null,
       });
 
+      // ── Verificar cuota CPE antes de insertar ────────────
+      const cuota = await verificarCuotaCPE();
+      if (!cuota.puede_emitir) {
+        mostrarAlertaCuota(cuota);
+        btn.disabled = false; btn.textContent = 'Emitir comprobante';
+        return;
+      }
+
       // Si hay facturador conectado, enviar a SUNAT
       if (API_SUNAT.activa) {
         await enviarASunat(resp.comprobante_id);
@@ -481,122 +557,164 @@ function abrirEmitirComprobante() {
 //  ENVÍO A SUNAT (cuando el facturador esté conectado)
 // ════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════
-//  MOTOR MIGO — Emisión a SUNAT via migo.pe
+//  MOTOR FACTURALIBRE — Emisión a SUNAT
+//  Docs: https://facturalibre.net/api/v1/docs
 // ════════════════════════════════════════════════════════════
 
-// Construye el payload exigido por la API de Migo
-function buildPayloadMigo(c, cfg) {
+// Construye el payload JSON exigido por FacturaLibre
+function buildPayloadFL(c, cfg) {
   const esFact = c.tipo_doc === 'factura';
   const esNC   = c.tipo_doc === 'nota_credito';
+  const subtotal = Number(c.total) - Number(c.igv || 0);
 
-  // Base del comprobante
   const payload = {
-    // Identificación del comprobante
-    tipo_documento: esFact ? '01' : esNC ? '07' : '03',
-    serie:          c.serie,
-    numero:         String(c.correlativo).padStart(8,'0'),
+    // ── Emisor ──────────────────────────────────────────────
+    empresa: {
+      ruc:          cfg.ruc_emisor || API_SUNAT.ruc_emisor,
+      razon_social: cfg.razon_social || API_SUNAT.razon_social,
+      usuario_sol:  cfg.usuario_sol,
+      clave_sol:    cfg.clave_sol,
+      // FacturaLibre distribuidor: identificar empresa cliente
+      empresa_id:   API_SUNAT.empresa_id || cfg.fl_empresa_id || undefined,
+    },
 
-    // Emisor
-    ruc:            cfg.ruc_emisor || API_SUNAT.ruc_emisor,
-    razon_social:   cfg.razon_social || API_SUNAT.razon_social,
-    usuario_sol:    cfg.usuario_sol,
-    clave_sol:      cfg.clave_sol,
+    // ── Comprobante ─────────────────────────────────────────
+    comprobante: {
+      tipo:        esFact ? '01' : esNC ? '07' : '03',
+      serie:       c.serie,
+      correlativo: String(c.correlativo).padStart(8, '0'),
+      fecha:       new Date(c.created_at).toISOString().slice(0, 10),
+      moneda:      'PEN',
+      ambiente:    API_SUNAT.modo_prod ? 'produccion' : 'beta',
+    },
 
-    // Receptor
-    tipo_doc_receptor:    esFact ? '6' : '1',   // 6=RUC, 1=DNI
-    num_doc_receptor:     c.ruc_receptor || '',
-    razon_social_receptor:c.razon_social_rec || '',
+    // ── Receptor ────────────────────────────────────────────
+    receptor: {
+      tipo_doc:    esFact ? '6' : '1',   // 6=RUC 1=DNI
+      numero_doc:  c.ruc_receptor || '',
+      denominacion:c.razon_social_rec || '',
+    },
 
-    // Montos
-    fecha_emision: new Date(c.created_at).toISOString().slice(0,10),
-    moneda:  'PEN',
-    total:   Number(c.total).toFixed(2),
-    igv:     Number(c.igv).toFixed(2),
-    subtotal:(Number(c.total) - Number(c.igv)).toFixed(2),
-
-    // Items — si no están guardados usamos uno genérico de hospedaje
+    // ── Items ───────────────────────────────────────────────
     items: c._items || [{
-      codigo:      'S001',
-      descripcion: c.tipo_doc === 'nota_credito'
-        ? `Nota de crédito: ${c.motivo_anulacion||'Anulación'}`
+      codigo:           'S001',
+      descripcion:      esNC
+        ? `NC: ${c.motivo_anulacion || 'Anulación'}`
         : 'Servicio de Hospedaje',
-      cantidad:    1,
-      precio_unitario: (Number(c.total) - Number(c.igv)).toFixed(2),
-      subtotal:    (Number(c.total) - Number(c.igv)).toFixed(2),
-      igv:         Number(c.igv).toFixed(2),
-      total:       Number(c.total).toFixed(2),
+      unidad:           'ZZ',
+      cantidad:         1,
+      precio_unitario:  subtotal.toFixed(2),
+      tipo_afectacion:  '10',   // gravado
+      total_base:       subtotal.toFixed(2),
+      igv:              Number(c.igv || 0).toFixed(2),
+      total:            Number(c.total).toFixed(2),
     }],
 
-    // Modo (producción o beta)
-    produccion: API_SUNAT.modo_prod || false,
+    // ── Totales ─────────────────────────────────────────────
+    totales: {
+      gravadas:   subtotal.toFixed(2),
+      igv:        Number(c.igv || 0).toFixed(2),
+      total:      Number(c.total).toFixed(2),
+    },
   };
 
-  // Nota de Crédito: referencia al comprobante original
-  if (esNC && c.comprobante_original_serie) {
-    payload.documento_referencia = {
-      tipo: '03',
-      serie: c.comprobante_original_serie,
-      numero: String(c.comprobante_original_corr||1).padStart(8,'0'),
+  // Nota de crédito: referencia al comprobante original
+  if (esNC) {
+    payload.comprobante.documento_referencia = {
+      tipo:       '03',
+      serie:      c.comprobante_original_serie || '',
+      correlativo:String(c.comprobante_original_corr || 1).padStart(8, '0'),
     };
-    payload.motivo = c.motivo_anulacion || 'Anulación';
+    payload.comprobante.motivo_nota = c.motivo_anulacion || 'Anulación de comprobante';
+    payload.comprobante.tipo_nota   = '01'; // anulación
   }
 
   return payload;
 }
 
 async function enviarASunat(comprobanteId) {
-  if (!API_SUNAT.activa) return; // modo contingencia → PENDIENTE_ENVIO
+  if (!API_SUNAT.activa) return;
 
   try {
     const { data: c }   = await db.from('comprobantes_sunat').select('*').eq('id', comprobanteId).single();
     const { data: cfg } = await db.from('configuracion_sunat').select('*').eq('hotel_id', SESSION.hotel.id).single();
-
     if (!c || !cfg) throw new Error('Datos insuficientes para emitir');
 
-    const payload = buildPayloadMigo(c, cfg);
+    // ── Verificar cuota antes de emitir ──────────────────
+    const cuota = await verificarCuotaCPE();
+    if (!cuota.puede_emitir) {
+      await db.from('comprobantes_sunat').update({
+        estado_sunat:  'PENDIENTE_ENVIO',
+        mensaje_sunat: `Cuota mensual agotada (${cuota.emitidos}/${cuota.limite})`,
+      }).eq('id', comprobanteId);
+      mostrarAlertaCuota(cuota);
+      return;
+    }
 
-    // POST a Migo
-    const endpoint = (API_SUNAT.url_emision || 'https://api.migo.pe/api/v1/').replace(/\/$/, '') + '/invoice';
+    const payload  = buildPayloadFL(c, cfg);
+    const endpoint = `${API_SUNAT.endpoint}/invoice`.replace(/([^:])\/\//g, '$1/');
+
+    // ── POST a FacturaLibre ───────────────────────────────
     const r = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type':  'application/json',
         'Accept':        'application/json',
-        'Authorization': 'Bearer ' + API_SUNAT.token,
+        'Authorization': `Bearer ${API_SUNAT.token}`,
       },
       body: JSON.stringify(payload),
     });
 
     const data = await r.json();
 
-    if (!r.ok || data.errors || data.error) {
-      const msg = data.message || data.errors?.[0] || 'Error Migo ' + r.status;
+    if (!r.ok) {
+      const msg = data.message || data.error || `Error FacturaLibre ${r.status}`;
       throw new Error(msg);
     }
 
-    // ✅ Éxito — Migo devuelve: success, data.pdf, data.xml, data.hash, data.qr
+    // ── ✅ Respuesta exitosa de FacturaLibre ─────────────
+    // FL devuelve: { success, data: { pdf, xml, cdr, hash, qr, numero } }
     const info = data.data || data;
+
+    // URL del QR estándar SUNAT
+    const qrTexto = [
+      cfg.ruc_emisor,
+      c.tipo_doc === 'factura' ? '01' : '03',
+      c.serie,
+      String(c.correlativo).padStart(8,'0'),
+      Number(c.igv||0).toFixed(2),
+      Number(c.total).toFixed(2),
+      new Date(c.created_at).toISOString().slice(0,10),
+    ].join('|');
+
     await db.from('comprobantes_sunat').update({
       estado_sunat:  'ACEPTADO',
-      url_pdf:       info.pdf || info.url_pdf || null,
-      url_xml:       info.xml || info.url_xml || null,
-      codigo_hash:   info.hash || info.hash_cpe || null,
-      codigo_qr:     info.qr || info.codigo_qr || null,
-      migo_id:       info.id || info.invoice_id || null,
+      url_pdf:       info.pdf   || info.url_pdf   || null,
+      url_xml:       info.xml   || info.url_xml   || null,
+      codigo_hash:   info.hash  || info.hash_cpe  || null,
+      codigo_qr:     info.qr    || qrTexto,
+      migo_id:       info.id    || info.invoice_id || null,
       mensaje_sunat: info.sunat_description || info.mensaje || 'Aceptado por SUNAT',
     }).eq('id', comprobanteId);
 
-    toast('✅ Emitido a SUNAT', 'Comprobante aceptado por SUNAT', 'ok');
+    toast('✅ Emitido a SUNAT', `${c.serie}-${String(c.correlativo).padStart(8,'0')} aceptado`, 'ok');
 
   } catch (err) {
     await db.from('comprobantes_sunat').update({
       estado_sunat:  'PENDIENTE_ENVIO',
       mensaje_sunat: 'Error: ' + err.message,
     }).eq('id', comprobanteId);
-    toast('⚠️ Guardado en contingencia', err.message, 'warn', 8000);
-    console.error('[Migo]', err.message);
+    toast('⚠️ En contingencia', err.message, 'warn', 8000);
+    console.error('[FacturaLibre]', err.message);
   }
 }
+
+async function reintentarEnvio(comprobanteId) {
+  toast('Reintentando envío a SUNAT…', '', 'info', 2000);
+  await enviarASunat(comprobanteId);
+  moduloFacturacion();
+}
+
 
 async function reintentarEnvio(comprobanteId) {
   toast('Reintentando envío a SUNAT…', '', 'info', 2000);
@@ -1221,23 +1339,26 @@ function togglePass(inputId, btn) {
 
 async function probarConexionSunat() {
   if (!API_SUNAT.activa) {
-    toast('Sin facturador', 'Configura el Token Migo para activar la conexión', 'warn'); return;
+    toast('Sin facturador', 'Configura el Token FacturaLibre para activar la emisión', 'warn'); return;
   }
-  const btn = document.querySelector('[onclick="probarConexionSunat()"]');
+  const btn  = document.querySelector('[onclick="probarConexionSunat()"]');
   const orig = btn?.innerHTML;
   if (btn) { btn.disabled=true; btn.innerHTML='Probando…'; }
   try {
-    // Migo — endpoint de prueba de credenciales
-    const endpoint = (API_SUNAT.url_emision||'https://api.migo.pe/api/v1/').replace(/\/$/, '') + '/ping';
+    // FacturaLibre — endpoint de verificación de credenciales
+    const endpoint = `${API_SUNAT.endpoint}/ping`.replace(/([^:])\/\//g,'$1/');
     const r = await fetch(endpoint, {
       method: 'GET',
-      headers: { 'Authorization': 'Bearer ' + API_SUNAT.token, 'Accept': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${API_SUNAT.token}`,
+        'Accept': 'application/json',
+      },
     });
     if (r.ok) {
-      toast('✅ Conexión exitosa', 'Migo responde correctamente', 'ok');
+      toast('✅ FacturaLibre conectado', 'Credenciales válidas · listo para emitir', 'ok');
     } else {
       const d = await r.json().catch(()=>({}));
-      toast('❌ Error de conexión', d.message || 'Token inválido o endpoint incorrecto', 'error');
+      toast('❌ Error de conexión', d.message || `Token inválido (${r.status})`, 'error');
     }
   } catch(err) {
     toast('❌ Sin conexión', err.message, 'error');
