@@ -2468,7 +2468,7 @@ function renderRack() {
     </div>
 
     <!-- 5 tarjetas de resumen -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:0.85rem;margin-bottom:1.25rem;">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.65rem;margin-bottom:1.25rem;" class="rack-stats-grid">
       ${rackStatCard('Habitaciones libres',   conteo.libre,         total, '#16A34A','#F0FDF4', 'bed-libre')}
       ${rackStatCard('Habitaciones ocupadas', conteo.ocupada,       total, '#DC2626','#FEF2F2', 'bed-ocu')}
       ${rackStatCard('En limpieza',           conteo.limpieza,      total, '#CA8A04','#FEFCE8', 'broom')}
