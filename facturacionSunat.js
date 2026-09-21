@@ -1,21 +1,39 @@
 // ============================================================
 // HospedaYa — facturacionSunat.js
-// FASE 5: Facturación SUNAT + tickets térmicos 80mm + WhatsApp
+// FASE 5: Facturación SUNAT + Motor Migo + tickets térmicos 80mm
 // ============================================================
 
 // ════════════════════════════════════════════════════════════
-//  ⚠️ CONFIGURACIÓN DEL FACTURADOR / OSE  (PEGAR AQUÍ TU API)
+//  CONFIGURACIÓN DINÁMICA — se carga desde configuracion_sunat
+//  El token NUNCA está hardcodeado aquí. Se lee de la BD.
 // ════════════════════════════════════════════════════════════
-// Cuando contrates tu facturador electrónico u OSE, edita SOLO
-// este bloque. Mientras 'activa' sea false, los comprobantes se
-// guardan en estado PENDIENTE_ENVIO y funcionan para imprimir /
-// enviar por WhatsApp, pero NO se declaran a SUNAT todavía.
-// ────────────────────────────────────────────────────────────
 const API_SUNAT = {
-  activa: false,               // ← cámbialo a true cuando conectes tu facturador
-  url_emision: '',             // ← ej: 'https://api.tufacturador.com/emitir'
-  token: '',                   // ← token/API key de tu facturador
+  activa:      false,
+  proveedor:   'migo',
+  url_emision: 'https://api.migo.pe/api/v1/',
+  token:       '',
+  ruc_emisor:  '',
+  razon_social:'',
+  modo_prod:   false,
 };
+
+async function cargarConfigSunat() {
+  if (!SESSION.hotel) return;
+  try {
+    const { data } = await db.from('configuracion_sunat')
+      .select('*').eq('hotel_id', SESSION.hotel.id).single();
+    if (data?.token_api) {
+      API_SUNAT.activa      = true;
+      API_SUNAT.token       = data.token_api;
+      API_SUNAT.url_emision = data.api_endpoint || 'https://api.migo.pe/api/v1/';
+      API_SUNAT.proveedor   = data.proveedor_api || 'migo';
+      API_SUNAT.ruc_emisor  = data.ruc_emisor  || '';
+      API_SUNAT.razon_social= data.razon_social || '';
+      API_SUNAT.modo_prod   = data.modo_produccion || false;
+    }
+  } catch(_) {}
+}
+
 
 const IGV_TASA = 0.18;  // 18% Perú
 
@@ -30,6 +48,7 @@ const NOMBRE_TIPO = { boleta: 'BOLETA DE VENTA', factura: 'FACTURA', nota_credit
 async function moduloFacturacion() {
   skeleton();
   try {
+    await cargarConfigSunat(); // carga token Migo desde BD
     if (!SESSION.turnoActivo) SESSION.turnoActivo = await getTurnoAbierto();
 
     const { data: comps, error } = await db
@@ -461,56 +480,130 @@ function abrirEmitirComprobante() {
 // ════════════════════════════════════════════════════════════
 //  ENVÍO A SUNAT (cuando el facturador esté conectado)
 // ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+//  MOTOR MIGO — Emisión a SUNAT via migo.pe
+// ════════════════════════════════════════════════════════════
+
+// Construye el payload exigido por la API de Migo
+function buildPayloadMigo(c, cfg) {
+  const esFact = c.tipo_doc === 'factura';
+  const esNC   = c.tipo_doc === 'nota_credito';
+
+  // Base del comprobante
+  const payload = {
+    // Identificación del comprobante
+    tipo_documento: esFact ? '01' : esNC ? '07' : '03',
+    serie:          c.serie,
+    numero:         String(c.correlativo).padStart(8,'0'),
+
+    // Emisor
+    ruc:            cfg.ruc_emisor || API_SUNAT.ruc_emisor,
+    razon_social:   cfg.razon_social || API_SUNAT.razon_social,
+    usuario_sol:    cfg.usuario_sol,
+    clave_sol:      cfg.clave_sol,
+
+    // Receptor
+    tipo_doc_receptor:    esFact ? '6' : '1',   // 6=RUC, 1=DNI
+    num_doc_receptor:     c.ruc_receptor || '',
+    razon_social_receptor:c.razon_social_rec || '',
+
+    // Montos
+    fecha_emision: new Date(c.created_at).toISOString().slice(0,10),
+    moneda:  'PEN',
+    total:   Number(c.total).toFixed(2),
+    igv:     Number(c.igv).toFixed(2),
+    subtotal:(Number(c.total) - Number(c.igv)).toFixed(2),
+
+    // Items — si no están guardados usamos uno genérico de hospedaje
+    items: c._items || [{
+      codigo:      'S001',
+      descripcion: c.tipo_doc === 'nota_credito'
+        ? `Nota de crédito: ${c.motivo_anulacion||'Anulación'}`
+        : 'Servicio de Hospedaje',
+      cantidad:    1,
+      precio_unitario: (Number(c.total) - Number(c.igv)).toFixed(2),
+      subtotal:    (Number(c.total) - Number(c.igv)).toFixed(2),
+      igv:         Number(c.igv).toFixed(2),
+      total:       Number(c.total).toFixed(2),
+    }],
+
+    // Modo (producción o beta)
+    produccion: API_SUNAT.modo_prod || false,
+  };
+
+  // Nota de Crédito: referencia al comprobante original
+  if (esNC && c.comprobante_original_serie) {
+    payload.documento_referencia = {
+      tipo: '03',
+      serie: c.comprobante_original_serie,
+      numero: String(c.comprobante_original_corr||1).padStart(8,'0'),
+    };
+    payload.motivo = c.motivo_anulacion || 'Anulación';
+  }
+
+  return payload;
+}
+
 async function enviarASunat(comprobanteId) {
-  if (!API_SUNAT.activa) return; // modo pendiente
+  if (!API_SUNAT.activa) return; // modo contingencia → PENDIENTE_ENVIO
 
   try {
-    const { data: c } = await db.from('comprobantes_sunat').select('*').eq('id', comprobanteId).single();
+    const { data: c }   = await db.from('comprobantes_sunat').select('*').eq('id', comprobanteId).single();
     const { data: cfg } = await db.from('configuracion_sunat').select('*').eq('hotel_id', SESSION.hotel.id).single();
 
-    // ⚠️ Ajusta el body según lo que pida TU facturador/OSE:
-    const r = await fetch(API_SUNAT.url_emision, {
+    if (!c || !cfg) throw new Error('Datos insuficientes para emitir');
+
+    const payload = buildPayloadMigo(c, cfg);
+
+    // POST a Migo
+    const endpoint = (API_SUNAT.url_emision || 'https://api.migo.pe/api/v1/').replace(/\/$/, '') + '/invoice';
+    const r = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        ...(API_SUNAT.token ? { 'Authorization': 'Bearer ' + API_SUNAT.token } : {}),
+        'Content-Type':  'application/json',
+        'Accept':        'application/json',
+        'Authorization': 'Bearer ' + API_SUNAT.token,
       },
-      body: JSON.stringify({
-        tipo: c.tipo_doc, serie: c.serie, correlativo: c.correlativo,
-        ruc_emisor: c.ruc_emisor, ruc_receptor: c.ruc_receptor,
-        razon_social: c.razon_social_rec, total: c.total, igv: c.igv,
-        usuario_sol: cfg.usuario_sol, clave_sol: cfg.clave_sol,
-      }),
+      body: JSON.stringify(payload),
     });
 
-    if (!r.ok) throw new Error('El facturador respondió ' + r.status);
     const data = await r.json();
 
-    // ⚠️ Ajusta los campos según la respuesta de TU facturador:
+    if (!r.ok || data.errors || data.error) {
+      const msg = data.message || data.errors?.[0] || 'Error Migo ' + r.status;
+      throw new Error(msg);
+    }
+
+    // ✅ Éxito — Migo devuelve: success, data.pdf, data.xml, data.hash, data.qr
+    const info = data.data || data;
     await db.from('comprobantes_sunat').update({
-      estado_sunat: 'ACEPTADO',
-      url_pdf: data.pdf || data.url_pdf || null,
-      url_xml: data.xml || data.url_xml || null,
-      hash_cpe: data.hash || data.hash_cpe || null,
-      codigo_qr: data.qr || data.codigo_qr || null,
-      mensaje_sunat: data.mensaje || 'Aceptado',
+      estado_sunat:  'ACEPTADO',
+      url_pdf:       info.pdf || info.url_pdf || null,
+      url_xml:       info.xml || info.url_xml || null,
+      codigo_hash:   info.hash || info.hash_cpe || null,
+      codigo_qr:     info.qr || info.codigo_qr || null,
+      migo_id:       info.id || info.invoice_id || null,
+      mensaje_sunat: info.sunat_description || info.mensaje || 'Aceptado por SUNAT',
     }).eq('id', comprobanteId);
 
+    toast('✅ Emitido a SUNAT', 'Comprobante aceptado por SUNAT', 'ok');
+
   } catch (err) {
-    // Contingencia: queda PENDIENTE_ENVIO para reintentar
     await db.from('comprobantes_sunat').update({
-      estado_sunat: 'PENDIENTE_ENVIO',
-      mensaje_sunat: 'Pendiente: ' + err.message,
+      estado_sunat:  'PENDIENTE_ENVIO',
+      mensaje_sunat: 'Error: ' + err.message,
     }).eq('id', comprobanteId);
-    toast('Guardado en contingencia', 'Se reintentará el envío a SUNAT', 'warn');
+    toast('⚠️ Guardado en contingencia', err.message, 'warn', 8000);
+    console.error('[Migo]', err.message);
   }
 }
 
 async function reintentarEnvio(comprobanteId) {
-  toast('Reintentando…', '', 'info', 2000);
+  toast('Reintentando envío a SUNAT…', '', 'info', 2000);
   await enviarASunat(comprobanteId);
   moduloFacturacion();
 }
+
 
 
 // ════════════════════════════════════════════════════════════
@@ -994,31 +1087,128 @@ async function moduloSunatConfig() {
       </div>
     `;
 
-    // Submit del form
+    // Agregar nuevos campos al form después de cargar
+    // (se inyectan en la sección de Credenciales SOL que ya existe)
+
+    // Submit del form — ahora guarda todos los campos incluyendo los nuevos
     $('#form-sunat').addEventListener('submit', async e => {
       e.preventDefault();
       const btn = e.submitter || document.querySelector('#form-sunat button[type="submit"]');
       const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = 'Guardando…';
       try {
         await db.from('configuracion_sunat').update({
+          // Empresa
+          ruc_emisor:           $('#s-ruc-emisor')?.value?.trim() || cfg.ruc_emisor,
+          razon_social:         $('#s-razon-social')?.value?.trim() || cfg.razon_social,
+          // Series y correlativos
           serie_boleta:         $('#s-sb').value.trim(),
           correlativo_boleta:   parseInt($('#s-cb').value)||1,
           serie_factura:        $('#s-sf').value.trim(),
           correlativo_factura:  parseInt($('#s-cf').value)||1,
           serie_nota_credito:   $('#s-snc').value.trim(),
           correlativo_nota_cred:parseInt($('#s-cnc').value)||1,
+          // Credenciales SOL
           usuario_sol:          $('#s-usol').value.trim(),
           clave_sol:            $('#s-csol').value,
+          // Migo
           token_api:            $('#s-token').value.trim(),
-          endpoint_facturador:  $('#s-endpoint').value.trim(),
+          api_endpoint:         $('#s-endpoint').value.trim() || 'https://api.migo.pe/api/v1/',
+          proveedor_api:        'migo',
+          modo_produccion:      $('#s-modo-prod')?.checked || false,
+          // Apis.net.pe (DNI/RUC)
+          token_dni_ruc:        $('#s-token-dni')?.value?.trim() || '',
         }).eq('hotel_id', SESSION.hotel.id);
-        toast('Configuración guardada', '', 'ok');
+
+        // Recargar la config en memoria para que tome efecto inmediato
+        await cargarConfigSunat();
+        await inicializarApiDoc();
+
+        toast('✅ Configuración guardada', 'Los cambios están activos', 'ok');
       } catch (err) {
         toast('Error', err.message, 'error');
       } finally {
         btn.disabled = false; btn.innerHTML = orig;
       }
     });
+
+    // Inyectar campos extra (RUC emisor, Razón Social, Token DNI/RUC, Modo Producción)
+    // al panel de Credenciales SOL que ya existe en el DOM
+    setTimeout(() => {
+      const formSunat = document.getElementById('form-sunat');
+      if (!formSunat) return;
+
+      // Sección empresa — insertar al inicio del form
+      const secEmpresa = document.createElement('div');
+      secEmpresa.style.cssText = 'background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.5rem;margin-bottom:1.1rem;';
+      secEmpresa.innerHTML = `
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;">
+          <div style="width:40px;height:40px;border-radius:11px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;"><path d="M3 21h18M6 21V7l6-4 6 4v14"/></svg>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:1rem;">Datos de la empresa</div>
+            <div style="font-size:0.75rem;color:var(--texto-sub);">RUC y Razón Social con los que se emiten los comprobantes</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.75rem;">
+          <div>
+            <label style="${ST.label}">RUC emisor *</label>
+            <input style="${ST.input}" id="s-ruc-emisor" value="${escapeHtml(cfg.ruc_emisor||'')}" maxlength="11" placeholder="20123456789">
+          </div>
+          <div>
+            <label style="${ST.label}">Razón social *</label>
+            <input style="${ST.input}" id="s-razon-social" value="${escapeHtml(cfg.razon_social||'')}" placeholder="Hotel Las Palmeras SAC">
+          </div>
+        </div>
+      `;
+      formSunat.insertBefore(secEmpresa, formSunat.firstChild);
+
+      // Sección Token DNI/RUC + Modo Producción — al final del form antes del submit
+      const secExtra = document.createElement('div');
+      secExtra.style.cssText = 'background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.5rem;margin-bottom:1rem;';
+      secExtra.innerHTML = `
+        <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1.25rem;">
+          <div style="width:40px;height:40px;border-radius:11px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <div>
+            <div style="font-weight:700;font-size:1rem;">Autocompletado DNI / RUC</div>
+            <div style="font-size:0.75rem;color:var(--texto-sub);">Token de <strong>Apis.net.pe</strong> — el token queda en la BD, nunca expuesto en el código</div>
+          </div>
+        </div>
+        <div style="${ST.grupo}">
+          <label style="${ST.label}">Token Apis.net.pe</label>
+          <div style="position:relative;">
+            <input style="${ST.input};padding-right:2.5rem;" id="s-token-dni" type="password" value="${escapeHtml(cfg.token_dni_ruc||'')}" placeholder="apis.net.pe token aquí">
+            <button type="button" onclick="togglePass('s-token-dni',this)" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94A3B8;padding:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div style="font-size:0.73rem;color:var(--texto-sub);margin-top:0.35rem;">
+            Obtén tu token en <a href="https://apis.net.pe" target="_blank" style="color:var(--azul);">apis.net.pe</a> · Activa el autocompletado de DNI y RUC en el check-in
+          </div>
+        </div>
+
+        <!-- Modo producción -->
+        <div style="display:flex;align-items:center;justify-content:space-between;background:${cfg.modo_produccion?'#F0FDF4':'#FEF2F2'};border:1px solid ${cfg.modo_produccion?'#BBF7D0':'#FECACA'};border-radius:10px;padding:0.85rem 1rem;margin-top:0.75rem;">
+          <div>
+            <div style="font-weight:700;font-size:0.88rem;color:${cfg.modo_produccion?'#16A34A':'#DC2626'};">${cfg.modo_produccion?'🟢 Modo Producción':'🔴 Modo Pruebas (Beta)'}</div>
+            <div style="font-size:0.72rem;color:var(--texto-sub);">${cfg.modo_produccion?'Los comprobantes se declaran a SUNAT real':'Los comprobantes van al ambiente de pruebas de SUNAT'}</div>
+          </div>
+          <label style="position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;flex-shrink:0;">
+            <input type="checkbox" id="s-modo-prod" ${cfg.modo_produccion?'checked':''} style="opacity:0;width:0;height:0;"
+              onchange="this.closest('div').style.background=this.checked?'#F0FDF4':'#FEF2F2';this.closest('div').style.borderColor=this.checked?'#BBF7D0':'#FECACA'">
+            <span style="position:absolute;cursor:pointer;inset:0;background:${cfg.modo_produccion?'#16A34A':'#D1D5DB'};border-radius:999px;transition:0.3s;">
+              <span style="position:absolute;content:'';height:18px;width:18px;left:3px;bottom:3px;background:white;border-radius:50%;transition:0.3s;transform:${cfg.modo_produccion?'translateX(20px)':'translateX(0)'}"></span>
+            </span>
+          </label>
+        </div>
+      `;
+      // Insertar antes del botón submit
+      const btnSubmit = formSunat.querySelector('button[type="submit"]')?.parentElement;
+      if (btnSubmit) formSunat.insertBefore(secExtra, btnSubmit.parentElement || btnSubmit);
+      else formSunat.appendChild(secExtra);
+    }, 50);
 
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar la configuración SUNAT', err.message);
@@ -1033,6 +1223,29 @@ function togglePass(inputId, btn) {
   btn.style.color = visible ? '#94A3B8' : 'var(--azul)';
 }
 
-function probarConexionSunat() {
-  toast('Conexión', API_SUNAT.activa ? 'Facturador conectado ✓' : 'Sin facturador — modo PENDIENTE_ENVIO', API_SUNAT.activa ? 'ok' : 'info');
+async function probarConexionSunat() {
+  if (!API_SUNAT.activa) {
+    toast('Sin facturador', 'Configura el Token Migo para activar la conexión', 'warn'); return;
+  }
+  const btn = document.querySelector('[onclick="probarConexionSunat()"]');
+  const orig = btn?.innerHTML;
+  if (btn) { btn.disabled=true; btn.innerHTML='Probando…'; }
+  try {
+    // Migo — endpoint de prueba de credenciales
+    const endpoint = (API_SUNAT.url_emision||'https://api.migo.pe/api/v1/').replace(/\/$/, '') + '/ping';
+    const r = await fetch(endpoint, {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ' + API_SUNAT.token, 'Accept': 'application/json' },
+    });
+    if (r.ok) {
+      toast('✅ Conexión exitosa', 'Migo responde correctamente', 'ok');
+    } else {
+      const d = await r.json().catch(()=>({}));
+      toast('❌ Error de conexión', d.message || 'Token inválido o endpoint incorrecto', 'error');
+    }
+  } catch(err) {
+    toast('❌ Sin conexión', err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled=false; btn.innerHTML=orig; }
+  }
 }

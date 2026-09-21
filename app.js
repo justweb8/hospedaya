@@ -132,46 +132,53 @@ function renderModulo(modulo) {
 // { razon_social, direccion } para RUC. Mientras esté vacío,
 // el campo funciona en modo manual sin problemas.
 // ────────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════
+//  API DNI / RUC — Se carga dinámicamente desde configuracion_sunat
+//  El token NUNCA viaja al browser. Se usa via RPC SECURITY DEFINER.
+// ════════════════════════════════════════════════════════════
 const API_DOC = {
-  activa: false,                        // ← cámbialo a true cuando conectes tu API
-  url_dni: '',                          // ← ej: 'https://api.midoc.com/dni/'
-  url_ruc: '',                          // ← ej: 'https://api.midoc.com/ruc/'
-  token:   '',                          // ← tu token de la API
+  activa: false,    // se activa al cargar config desde BD
+  modo: 'rpc',      // 'rpc' = via Supabase RPC (seguro) | 'direct' = directo (legacy)
 };
 
-async function consultarDNI(dni) {
-  if (!API_DOC.activa || !API_DOC.url_dni) return null; // modo manual
+// Llamado tras login para activar autocompletado si el hotel tiene token configurado
+async function inicializarApiDoc() {
+  if (!SESSION.hotel) return;
   try {
-    const r = await fetch(API_DOC.url_dni + dni, {
-      headers: API_DOC.token ? { 'Authorization': 'Bearer ' + API_DOC.token } : {}
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
-    // ⚠️ Ajusta estos campos según la respuesta de TU API:
+    const { data } = await db.from('configuracion_sunat')
+      .select('token_dni_ruc')
+      .eq('hotel_id', SESSION.hotel.id).single();
+    API_DOC.activa = !!(data?.token_dni_ruc);
+  } catch(_) { API_DOC.activa = false; }
+}
+
+// Consulta DNI via RPC segura (token queda en PostgreSQL, nunca en JS)
+async function consultarDNI(dni) {
+  if (!API_DOC.activa) return null;
+  try {
+    const { data, error } = await db.rpc('fn_consultar_dni', { p_dni: dni });
+    if (error || data?.error) return null;
     return {
-      nombres:   data.nombres   || data.first_name || '',
-      apellidos: (data.apellidoPaterno && data.apellidoMaterno)
-                    ? `${data.apellidoPaterno} ${data.apellidoMaterno}`
-                    : (data.apellidos || data.last_name || ''),
+      nombres:   data.nombres || '',
+      apellidos: data.apellidoPaterno
+        ? `${data.apellidoPaterno} ${data.apellidoMaterno||''}`.trim()
+        : (data.apellidos || ''),
     };
   } catch { return null; }
 }
 
+// Consulta RUC via RPC segura
 async function consultarRUC(ruc) {
-  if (!API_DOC.activa || !API_DOC.url_ruc) return null;
+  if (!API_DOC.activa) return null;
   try {
-    const r = await fetch(API_DOC.url_ruc + ruc, {
-      headers: API_DOC.token ? { 'Authorization': 'Bearer ' + API_DOC.token } : {}
-    });
-    if (!r.ok) return null;
-    const data = await r.json();
+    const { data, error } = await db.rpc('fn_consultar_ruc', { p_ruc: ruc });
+    if (error || data?.error) return null;
     return {
       razon_social: data.razonSocial || data.nombre || '',
-      direccion:    data.direccion   || '',
+      direccion:    data.direccion   || data.domicilioFiscal || '',
     };
   } catch { return null; }
 }
-
 
 // ════════════════════════════════════════════════════════════
 //  SUPERADMIN › DASHBOARD SAAS

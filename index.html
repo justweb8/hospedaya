@@ -1677,6 +1677,7 @@ db.auth.onAuthStateChange(async (event, session) => {
 
     // Notificaciones — cargar al inicio y refrescar cada 5 min
     if (!SESSION.perfil.es_superadmin) {
+      await inicializarApiDoc();        // activa autocompletado DNI/RUC si hay token
       await cargarNotificaciones();
       if (window._notiTicker) clearInterval(window._notiTicker);
       window._notiTicker = setInterval(cargarNotificaciones, 5 * 60 * 1000);
