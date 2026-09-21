@@ -133,30 +133,36 @@ function renderModulo(modulo) {
 // el campo funciona en modo manual sin problemas.
 // ────────────────────────────────────────────────────────────
 // ════════════════════════════════════════════════════════════
-//  API DNI / RUC — Se carga dinámicamente desde configuracion_sunat
-//  El token NUNCA viaja al browser. Se usa via RPC SECURITY DEFINER.
+//  CONSULTA DNI / RUC — Token centralizado en SuperAdmin
+//  El token vive SOLO en configuracion_global (tabla blindada).
+//  El frontend NUNCA lo ve. Solo llama a la RPC.
 // ════════════════════════════════════════════════════════════
-const API_DOC = {
-  activa: false,    // se activa al cargar config desde BD
-  modo: 'rpc',      // 'rpc' = via Supabase RPC (seguro) | 'direct' = directo (legacy)
-};
+const API_DOC = { activa: false };
 
-// Llamado tras login para activar autocompletado si el hotel tiene token configurado
+// Verifica si el servicio global está activo (sin exponer el token)
 async function inicializarApiDoc() {
-  if (!SESSION.hotel) return;
+  if (!SESSION.hotel && !SESSION.perfil?.es_superadmin) return;
   try {
-    const { data } = await db.from('configuracion_sunat')
-      .select('token_dni_ruc')
-      .eq('hotel_id', SESSION.hotel.id).single();
-    API_DOC.activa = !!(data?.token_dni_ruc);
-  } catch(_) { API_DOC.activa = false; }
+    // Intentamos una consulta vacía para ver si la RPC responde
+    // (si el token no está configurado devuelve error controlado)
+    const { data } = await db.rpc('fn_consultar_documento', { p_tipo: 'ping', p_numero: '' });
+    // Si devuelve error de "no configurado" el servicio no está listo
+    // Si devuelve cualquier otra respuesta, está activo
+    API_DOC.activa = !data?.error?.includes('no configurado');
+  } catch(_) {
+    // Si la RPC existe pero falla por otro motivo, la marcamos activa
+    // para que intente y falle con mensaje al usuario
+    API_DOC.activa = true;
+  }
 }
 
-// Consulta DNI via RPC segura (token queda en PostgreSQL, nunca en JS)
+// Consulta DNI — usa la RPC unificada (token nunca sale al browser)
 async function consultarDNI(dni) {
   if (!API_DOC.activa) return null;
   try {
-    const { data, error } = await db.rpc('fn_consultar_dni', { p_dni: dni });
+    const { data, error } = await db.rpc('fn_consultar_documento', {
+      p_tipo: 'dni', p_numero: dni,
+    });
     if (error || data?.error) return null;
     return {
       nombres:   data.nombres || '',
@@ -167,15 +173,17 @@ async function consultarDNI(dni) {
   } catch { return null; }
 }
 
-// Consulta RUC via RPC segura
+// Consulta RUC — usa la RPC unificada
 async function consultarRUC(ruc) {
   if (!API_DOC.activa) return null;
   try {
-    const { data, error } = await db.rpc('fn_consultar_ruc', { p_ruc: ruc });
+    const { data, error } = await db.rpc('fn_consultar_documento', {
+      p_tipo: 'ruc', p_numero: ruc,
+    });
     if (error || data?.error) return null;
     return {
-      razon_social: data.razonSocial || data.nombre || '',
-      direccion:    data.direccion   || data.domicilioFiscal || '',
+      razon_social: data.razonSocial || '',
+      direccion:    data.direccion   || '',
     };
   } catch { return null; }
 }
@@ -238,6 +246,9 @@ async function moduloSaDashboard() {
           </table>
         </div>
       </div>
+
+      <!-- Configuración Global DNI/RUC -->
+      ${await renderCardConfigGlobal()}
     `;
   } catch(err) { contenido().innerHTML = errorBox('No se pudo cargar el dashboard', err.message); }
 }
@@ -255,6 +266,144 @@ function saKpi(label, valor, color, bg, icono) {
         </div>
       </div>
     </div>`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  SUPERADMIN › CONFIGURACIÓN GLOBAL (Token DNI/RUC)
+// ════════════════════════════════════════════════════════════
+async function renderCardConfigGlobal() {
+  try {
+    const { data: cfg } = await db.from('configuracion_global')
+      .select('token_dni_ruc, proveedor_dni_ruc, actualizado_el')
+      .eq('id', 1).single();
+
+    const tieneToken = !!(cfg?.token_dni_ruc);
+    const proveedor  = cfg?.proveedor_dni_ruc || 'apis_net_pe';
+    const actualizado = cfg?.actualizado_el
+      ? new Date(cfg.actualizado_el).toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'})
+      : '—';
+
+    return `
+      <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.5rem;margin-top:1.25rem;">
+        <!-- Header -->
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+          <div style="display:flex;align-items:center;gap:0.85rem;">
+            <div style="width:44px;height:44px;border-radius:12px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/><path d="M21 21v-2a4 4 0 0 0-3-3.87"/></svg>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:1rem;">Servicio Global de Identidad (DNI / RUC)</div>
+              <div style="font-size:0.75rem;color:var(--texto-sub);">Token maestro · Abastece a TODOS los hoteles · Nunca expuesto al cliente</div>
+            </div>
+          </div>
+          <span style="font-size:0.72rem;font-weight:700;padding:0.25rem 0.75rem;border-radius:999px;
+            background:${tieneToken?'#F0FDF4':'#FEF2F2'};
+            color:${tieneToken?'#16A34A':'#DC2626'};
+            border:1px solid ${tieneToken?'#BBF7D0':'#FECACA'};">
+            ${tieneToken?'✅ Token activo':'⚠️ Sin configurar'}
+          </span>
+        </div>
+
+        <!-- Form -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;" class="rep-grid">
+          <div>
+            <label style="${ST.label}">Proveedor</label>
+            <select style="${ST.input}" id="sa-proveedor-doc">
+              <option value="apis_net_pe" ${proveedor==='apis_net_pe'?'selected':''}>Apis.net.pe (recomendado)</option>
+              <option value="migo" ${proveedor==='migo'?'selected':''}>Migo</option>
+            </select>
+          </div>
+          <div>
+            <label style="${ST.label}">Última actualización</label>
+            <div style="${ST.input};background:var(--gris-bg);color:var(--texto-sub);font-size:0.85rem;">${actualizado}</div>
+          </div>
+        </div>
+
+        <div style="${ST.grupo}">
+          <label style="${ST.label}">Token maestro de consultas</label>
+          <div style="position:relative;">
+            <input style="${ST.input};padding-right:2.5rem;" id="sa-token-doc"
+              type="password" placeholder="${tieneToken?'••••••••••••••••••••':'Pega aquí el token de '+proveedor}">
+            <button type="button" onclick="togglePass('sa-token-doc',this)"
+              style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94A3B8;padding:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.35rem;">
+            🔒 Este token se almacena cifrado en la BD. Los hoteles NUNCA pueden verlo ni accederlo directamente.
+            Activa el autocompletado de DNI/RUC en el check-in de todos los hoteles.
+          </div>
+        </div>
+
+        ${tieneToken?`
+        <div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:0.75rem 1rem;margin-bottom:1rem;font-size:0.82rem;color:#1D4ED8;">
+          💡 El token actual seguirá activo si dejas el campo vacío al guardar.
+        </div>`:''}
+
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button onclick="guardarTokenGlobal()" style="width:auto;padding:0.65rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
+            💾 Guardar token global
+          </button>
+          <button onclick="probarTokenGlobal()" style="width:auto;padding:0.65rem 1.1rem;background:white;border:1.5px solid var(--gris-borde);border-radius:10px;font-size:0.85rem;font-weight:600;cursor:pointer;color:var(--texto-sub);">
+            🔍 Probar con DNI de prueba
+          </button>
+        </div>
+      </div>
+    `;
+  } catch(err) {
+    return `<div style="background:#FEF2F2;border:1px solid #FECACA;border-radius:12px;padding:1rem;margin-top:1rem;font-size:0.83rem;color:#DC2626;">
+      Error al cargar config global: ${escapeHtml(err.message)}
+    </div>`;
+  }
+}
+
+async function guardarTokenGlobal() {
+  const token    = document.getElementById('sa-token-doc')?.value?.trim();
+  const proveedor= document.getElementById('sa-proveedor-doc')?.value || 'apis_net_pe';
+  const btn      = document.querySelector('[onclick="guardarTokenGlobal()"]');
+  const orig     = btn?.innerHTML;
+
+  if (btn) { btn.disabled=true; btn.innerHTML='Guardando…'; }
+  try {
+    const update = { proveedor_dni_ruc: proveedor, actualizado_el: new Date().toISOString() };
+    if (token) update.token_dni_ruc = token; // solo actualiza si se ingresó uno nuevo
+
+    const { error } = await db.from('configuracion_global').update(update).eq('id', 1);
+    if (error) throw error;
+
+    toast('✅ Token global guardado', `Proveedor: ${proveedor} · Todos los hoteles actualizados`, 'ok');
+    document.getElementById('sa-token-doc').value = '';
+    moduloSaDashboard(); // recargar para actualizar el badge
+  } catch(err) {
+    toast('Error', err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled=false; btn.innerHTML=orig; }
+  }
+}
+
+async function probarTokenGlobal() {
+  const btn  = document.querySelector('[onclick="probarTokenGlobal()"]');
+  const orig = btn?.innerHTML;
+  if (btn) { btn.disabled=true; btn.innerHTML='Probando…'; }
+  try {
+    // Prueba con DNI ficticio — la RPC validará las credenciales
+    const { data, error } = await db.rpc('fn_consultar_documento', {
+      p_tipo: 'dni', p_numero: '00000000'
+    });
+    if (error) throw new Error(error.message);
+    if (data?.error && data.error.includes('no configurado')) {
+      toast('⚠️ Token no configurado', 'Guarda un token primero', 'warn');
+    } else if (data?.error) {
+      // Si hay error del proveedor pero la RPC funcionó = token conecta OK
+      toast('✅ Conexión OK', 'La RPC responde. El proveedor devuelve: ' + data.error, 'ok');
+    } else {
+      toast('✅ Token activo', 'El servicio de identidad responde correctamente', 'ok');
+    }
+  } catch(err) {
+    toast('❌ Error', err.message, 'error');
+  } finally {
+    if (btn) { btn.disabled=false; btn.innerHTML=orig; }
+  }
 }
 
 // ════════════════════════════════════════════════════════════

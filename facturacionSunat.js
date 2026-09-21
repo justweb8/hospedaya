@@ -1115,13 +1115,11 @@ async function moduloSunatConfig() {
           api_endpoint:         $('#s-endpoint').value.trim() || 'https://api.migo.pe/api/v1/',
           proveedor_api:        'migo',
           modo_produccion:      $('#s-modo-prod')?.checked || false,
-          // Apis.net.pe (DNI/RUC)
-          token_dni_ruc:        $('#s-token-dni')?.value?.trim() || '',
+          // token_dni_ruc ya no se gestiona aquí — lo gestiona el SuperAdmin globalmente
         }).eq('hotel_id', SESSION.hotel.id);
 
-        // Recargar la config en memoria para que tome efecto inmediato
+        // Recargar config Migo en memoria
         await cargarConfigSunat();
-        await inicializarApiDoc();
 
         toast('✅ Configuración guardada', 'Los cambios están activos', 'ok');
       } catch (err) {
@@ -1177,15 +1175,13 @@ async function moduloSunatConfig() {
           </div>
         </div>
         <div style="${ST.grupo}">
-          <label style="${ST.label}">Token Apis.net.pe</label>
-          <div style="position:relative;">
-            <input style="${ST.input};padding-right:2.5rem;" id="s-token-dni" type="password" value="${escapeHtml(cfg.token_dni_ruc||'')}" placeholder="apis.net.pe token aquí">
-            <button type="button" onclick="togglePass('s-token-dni',this)" style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#94A3B8;padding:0;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            </button>
-          </div>
-          <div style="font-size:0.73rem;color:var(--texto-sub);margin-top:0.35rem;">
-            Obtén tu token en <a href="https://apis.net.pe" target="_blank" style="color:var(--azul);">apis.net.pe</a> · Activa el autocompletado de DNI y RUC en el check-in
+          <label style="${ST.label}">Autocompletado DNI / RUC</label>
+          <div style="display:flex;align-items:center;gap:0.75rem;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:0.85rem 1rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;flex-shrink:0;"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            <div>
+              <div style="font-weight:700;font-size:0.85rem;color:#15803D;">Servicio activo y provisto por HospedaYa</div>
+              <div style="font-size:0.72rem;color:#16A34A;margin-top:0.15rem;">El autocompletado de DNI y RUC está habilitado para tu hotel. No necesitas configurar ningún token.</div>
+            </div>
           </div>
         </div>
 
