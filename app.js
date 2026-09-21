@@ -1474,8 +1474,234 @@ function mostrarResultadoArqueo(esperado, declarado, diferencia) {
 
 
 // ════════════════════════════════════════════════════════════
-//  SISTEMA DE NOTIFICACIONES
+//  BÚSQUEDA GLOBAL — Topbar
+//  Busca: huéspedes, habitaciones, reservas activas
 // ════════════════════════════════════════════════════════════
+let _busqTimer  = null;
+let _busqActivo = 0; // índice del resultado activo (teclado)
+let _busqResultados = [];
+
+async function busquedaGlobalInput(q) {
+  clearTimeout(_busqTimer);
+  q = q.trim();
+
+  // Ocultar si menos de 2 caracteres
+  if (q.length < 2) { cerrarPanelBusqueda(); return; }
+
+  // Mostrar spinner mientras busca
+  mostrarPanelBusqueda();
+  document.getElementById('busqueda-resultados').innerHTML = `
+    <div style="padding:1.5rem;text-align:center;color:var(--texto-sub);font-size:0.85rem;">
+      <div class="spinner" style="width:18px;height:18px;margin:0 auto 0.5rem;"></div>
+      Buscando…
+    </div>`;
+
+  _busqTimer = setTimeout(() => ejecutarBusqueda(q), 280);
+}
+
+async function ejecutarBusqueda(q) {
+  if (!SESSION.hotel) return;
+  const ql = q.toLowerCase();
+  const resultados = [];
+
+  try {
+    // ── 1. Huéspedes ────────────────────────────────────────
+    const { data: huespedes } = await db.from('huespedes')
+      .select('id,nombres,apellidos,num_doc,tipo_doc,celular')
+      .eq('hotel_id', SESSION.hotel.id)
+      .or(`nombres.ilike.%${q}%,apellidos.ilike.%${q}%,num_doc.ilike.%${q}%`)
+      .limit(5);
+
+    (huespedes||[]).forEach(h => {
+      resultados.push({
+        tipo:    'huesped',
+        id:      h.id,
+        titulo:  `${h.nombres} ${h.apellidos}`,
+        sub:     `${h.tipo_doc} ${h.num_doc}${h.celular?' · '+h.celular:''}`,
+        icono:   '👤',
+        color:   '#2563EB',
+        bg:      '#EFF6FF',
+        accion:  () => abrirFichaHuesped(h.id),
+      });
+    });
+
+    // ── 2. Habitaciones ──────────────────────────────────────
+    const { data: habs } = await db.from('habitaciones')
+      .select('id,numero,estado,tipos_habitacion(nombre)')
+      .eq('hotel_id', SESSION.hotel.id)
+      .ilike('numero', `%${q}%`)
+      .limit(5);
+
+    (habs||[]).forEach(h => {
+      const c = COLORES_ESTADO?.[h.estado] || { label: h.estado, badgeBg: '#64748B' };
+      resultados.push({
+        tipo:   'habitacion',
+        id:     h.id,
+        titulo: `Hab. ${h.numero} — ${h.tipos_habitacion?.nombre||''}`,
+        sub:    c.label,
+        icono:  '🛏️',
+        color:  '#7C3AED',
+        bg:     '#F5F3FF',
+        badge:  c.label,
+        badgeColor: c.badgeBg,
+        accion: () => { navegarA('rack'); },
+      });
+    });
+
+    // ── 3. Estadías activas / reservadas ────────────────────
+    const { data: estadias } = await db.from('estadias_reservas')
+      .select('id,estado,fecha_entrada,habitaciones(numero),huespedes(nombres,apellidos,num_doc)')
+      .eq('hotel_id', SESSION.hotel.id)
+      .in('estado', ['activa','reservada'])
+      .limit(30);
+
+    (estadias||[]).filter(e => {
+      const hu = e.huespedes;
+      const txt = `${hu?.nombres||''} ${hu?.apellidos||''} ${hu?.num_doc||''} ${e.habitaciones?.numero||''}`.toLowerCase();
+      return txt.includes(ql);
+    }).slice(0,4).forEach(e => {
+      const hu = e.huespedes||{};
+      resultados.push({
+        tipo:   'estadia',
+        id:     e.id,
+        titulo: `${hu.nombres||''} ${hu.apellidos||''} — Hab. ${e.habitaciones?.numero||'?'}`,
+        sub:    `${e.estado==='activa'?'🏨 Estadía activa':'📅 Reserva'} · Entrada: ${fechaCorta(e.fecha_entrada)}`,
+        icono:  e.estado==='activa' ? '🏨' : '📅',
+        color:  e.estado==='activa' ? '#16A34A' : '#CA8A04',
+        bg:     e.estado==='activa' ? '#F0FDF4' : '#FEFCE8',
+        accion: () => navegarA('rack'),
+      });
+    });
+
+    _busqResultados = resultados;
+    _busqActivo = 0;
+    renderResultadosBusqueda(q);
+
+  } catch(err) {
+    document.getElementById('busqueda-resultados').innerHTML = `
+      <div style="padding:1.5rem;text-align:center;color:var(--rojo);font-size:0.83rem;">Error: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+function renderResultadosBusqueda(q) {
+  const cont = document.getElementById('busqueda-resultados');
+  if (!cont) return;
+
+  if (!_busqResultados.length) {
+    cont.innerHTML = `
+      <div style="padding:2rem;text-align:center;">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">🔍</div>
+        <div style="font-weight:600;color:var(--texto);margin-bottom:0.25rem;">Sin resultados para "${escapeHtml(q)}"</div>
+        <div style="font-size:0.8rem;color:var(--texto-sub);">Prueba con el nombre, DNI o número de habitación</div>
+      </div>`;
+    return;
+  }
+
+  // Agrupar por tipo
+  const grupos = {
+    huesped:    { label:'Huéspedes',   items:[] },
+    habitacion: { label:'Habitaciones', items:[] },
+    estadia:    { label:'Estadías',     items:[] },
+  };
+  _busqResultados.forEach(r => grupos[r.tipo]?.items.push(r));
+
+  let html = '';
+  let idx = 0;
+  Object.entries(grupos).forEach(([tipo, grupo]) => {
+    if (!grupo.items.length) return;
+    html += `<div style="padding:0.5rem 1rem 0.25rem;font-size:0.68rem;font-weight:700;text-transform:uppercase;color:var(--texto-sub);letter-spacing:0.05em;">${grupo.label}</div>`;
+    grupo.items.forEach(r => {
+      const i = idx++;
+      html += `
+        <div class="busq-item" data-idx="${i}"
+          onclick="clickResultadoBusqueda(${i})"
+          onmouseover="activarResultado(${i})"
+          style="display:flex;align-items:center;gap:0.85rem;padding:0.75rem 1rem;cursor:pointer;transition:background 0.1s;${i===0?'background:var(--gris-bg);':''}"
+          onmouseout="this.style.background=''">
+          <div style="width:36px;height:36px;border-radius:10px;background:${r.bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.1rem;">${r.icono}</div>
+          <div style="flex:1;min-width:0;">
+            <div style="font-weight:600;font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.titulo)}</div>
+            <div style="font-size:0.73rem;color:var(--texto-sub);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(r.sub)}</div>
+          </div>
+          <svg viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0;"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>`;
+    });
+  });
+
+  // Footer con tip de teclado
+  html += `
+    <div style="padding:0.65rem 1rem;border-top:1px solid var(--gris-borde);display:flex;align-items:center;gap:0.75rem;font-size:0.72rem;color:var(--texto-sub);">
+      <span>↑↓ Navegar</span>
+      <span>↵ Abrir</span>
+      <span>Esc Cerrar</span>
+    </div>`;
+
+  cont.innerHTML = html;
+}
+
+function activarResultado(idx) {
+  _busqActivo = idx;
+  document.querySelectorAll('.busq-item').forEach((el,i) => {
+    el.style.background = i===idx ? 'var(--gris-bg)' : '';
+  });
+}
+
+function clickResultadoBusqueda(idx) {
+  const r = _busqResultados[idx];
+  if (!r) return;
+  cerrarPanelBusqueda();
+  document.getElementById('topbar-buscar').value = '';
+  // Si es huésped abrimos la ficha directamente
+  if (r.tipo === 'huesped') {
+    abrirFichaHuesped(r.id);
+  } else {
+    r.accion?.();
+  }
+}
+
+function busquedaGlobalKeydown(e) {
+  const total = _busqResultados.length;
+  if (!total) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    activarResultado((_busqActivo+1) % total);
+    scrollResultadoActivo();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    activarResultado((_busqActivo-1+total) % total);
+    scrollResultadoActivo();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+    clickResultadoBusqueda(_busqActivo);
+  } else if (e.key === 'Escape') {
+    cerrarPanelBusqueda();
+  }
+}
+
+function scrollResultadoActivo() {
+  const el = document.querySelector(`.busq-item[data-idx="${_busqActivo}"]`);
+  el?.scrollIntoView({ block:'nearest' });
+}
+
+function mostrarPanelBusqueda() {
+  const panel = document.getElementById('panel-busqueda');
+  if (panel) panel.style.display = 'block';
+}
+
+function cerrarPanelBusqueda() {
+  const panel = document.getElementById('panel-busqueda');
+  if (panel) panel.style.display = 'none';
+  _busqResultados = [];
+  _busqActivo = 0;
+}
+
+// Cerrar al hacer click fuera
+document.addEventListener('click', e => {
+  const search = document.querySelector('.topbar-search');
+  if (search && !search.contains(e.target)) cerrarPanelBusqueda();
+});
+
+
 let _notificaciones = [];
 let _panelAbierto   = false;
 

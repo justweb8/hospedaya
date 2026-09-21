@@ -1133,11 +1133,21 @@
 
       <!-- Topbar -->
       <div id="topbar">
-        <div class="topbar-search">
+        <div class="topbar-search" style="position:relative;">
           <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
-          <input type="text" placeholder="Buscar huésped, reserva o habitación…" id="topbar-buscar">
+          <input type="text" placeholder="Buscar huésped, reserva o habitación…" id="topbar-buscar"
+            autocomplete="off"
+            oninput="busquedaGlobalInput(this.value)"
+            onkeydown="busquedaGlobalKeydown(event)"
+            onfocus="if(this.value.trim().length>=2) mostrarPanelBusqueda()">
+          <kbd style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:var(--gris-borde);border-radius:5px;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--texto-sub);font-family:monospace;pointer-events:none;">Ctrl K</kbd>
+
+          <!-- Panel de resultados -->
+          <div id="panel-busqueda" style="display:none;position:absolute;top:calc(100% + 8px);left:0;width:480px;max-width:90vw;background:white;border:1px solid var(--gris-borde);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,0.15);z-index:600;overflow:hidden;">
+            <div id="busqueda-resultados" style="max-height:420px;overflow-y:auto;"></div>
+          </div>
         </div>
         <div class="topbar-right">
           <button class="topbar-bell" id="btn-campana" title="Notificaciones" onclick="toggleNotificaciones()">
@@ -1577,7 +1587,18 @@ document.getElementById('btn-login').addEventListener('click', async () => {
 
   try {
     await signIn(email, pass);
-    // onAuthStateChange se encargará del resto
+    // Atajo Ctrl+K para abrir buscador
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const inp = document.getElementById('topbar-buscar');
+        if (inp) { inp.focus(); inp.select(); }
+      }
+      if (e.key === 'Escape') {
+        cerrarPanelBusqueda();
+        cerrarNotificaciones();
+      }
+    });
   } catch (err) {
     errEl.textContent = 'Correo o contraseña incorrectos.';
     errEl.style.display = 'block';
