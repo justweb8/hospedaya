@@ -2187,7 +2187,7 @@ async function moduloDashboardHotel() {
 
     const fechaHoy = new Date().toLocaleDateString('es-PE', {
       weekday:'long', day:'numeric', month:'long', year:'numeric'
-    });
+    }).replace(/\b\w/g, (c, i) => i === 0 ? c.toUpperCase() : c.toLowerCase());
     const nombreUsuario = (SESSION.perfil.nombre_completo || SESSION.hotel.nombre_comercial || '').split(' ')[0];
     const esMobile = window.innerWidth <= 768;
 
@@ -2218,7 +2218,7 @@ async function moduloDashboardHotel() {
         </div>
 
         <!-- 4 KPIs en 2x2 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;margin-bottom:1rem;">
+        <div id="dash-kpis-mobile" style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;margin-bottom:1rem;">
           ${dashKpiMobile('Habitaciones libres',   conteo.libre,       '#16A34A','#F0FDF4','bed',      'rack')}
           ${dashKpiMobile('Habitaciones ocupadas', conteo.ocupada,     '#DC2626','#FEF2F2','bed-ocu',  'rack')}
           ${dashKpiMobile('En limpieza',           conteo.limpieza,    '#CA8A04','#FEFCE8','sparkles', 'rack')}
