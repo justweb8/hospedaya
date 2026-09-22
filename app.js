@@ -115,6 +115,8 @@ function renderModulo(modulo) {
     // Facturación SUNAT (Fase 5 · facturacionSunat.js)
     case 'facturacion':      return moduloFacturacion();
     case 'sunat-config':     return moduloSunatConfig();
+    // Pantalla "Más" — solo móvil
+    case 'mas-mobile':       return renderModuloMasMobile();
     default:
       contenido().innerHTML = `
         <div style="padding:2rem; color:var(--texto-sub); font-size:0.9rem;">
@@ -2571,8 +2573,60 @@ function estadoTarjeta(label, valor, color) {
 
 
 // ════════════════════════════════════════════════════════════
-//  HOTEL › RACK INTERACTIVO DE HABITACIONES
+//  MÓDULO "MÁS" — Pantalla completa en móvil
 // ════════════════════════════════════════════════════════════
+function renderModuloMasMobile() {
+  const rol   = SESSION.perfil?.rol;
+  const plan  = SESSION.hotel?.plan || 'basico';
+  const esPro = plan === 'pro';
+
+  const todosLosModulos = [
+    { id:'caja',              label:'Caja / Turno',       sub:'Control de caja',           color:'#16A34A', bg:'#F0FDF4',  svg:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',                       roles:['admin','recepcion'] },
+    { id:'tiendita',          label:'Tiendita',            sub:'Productos y stock',         color:'#7C3AED', bg:'#F5F3FF',  svg:'<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',  roles:['admin','recepcion'] },
+    { id:'facturacion',       label:'Facturación SUNAT',   sub:'Comprobantes electrónicos', color:'#2563EB', bg:'#EFF6FF',  svg:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>',  roles:['admin','recepcion'] },
+    { id:'restaurante',       label:'Restaurante',         sub:'Mesas y pedidos',           color:'#EA580C', bg:'#FFF7ED',  svg:'<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>',  roles:['admin','recepcion','restaurante'], pro:true },
+    { id:'cocina',            label:'Cocina / Comandas',   sub:'Gestión de cocina',         color:'#DC2626', bg:'#FEF2F2',  svg:'<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',  roles:['admin','cocina'], pro:true },
+    { id:'reportes',          label:'Reportes',            sub:'Estadísticas y análisis',   color:'#0891B2', bg:'#ECFEFF',  svg:'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',                roles:['admin'] },
+    { id:'personal',          label:'Personal',            sub:'Usuarios y roles',          color:'#7C3AED', bg:'#F5F3FF',  svg:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="3"/>',                roles:['admin'] },
+    { id:'habitacion-config', label:'Habitaciones',        sub:'Gestión de habitaciones',   color:'#2563EB', bg:'#EFF6FF',  svg:'<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',                                    roles:['admin'] },
+    { id:'suscripcion',       label:'Mi Suscripción',      sub:'Plan y facturación',        color:'#16A34A', bg:'#F0FDF4',  svg:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>',                                       roles:['admin'] },
+    { id:'sunat-config',      label:'Config. SUNAT',       sub:'Configuración tributaria',  color:'#CA8A04', bg:'#FEFCE8',  svg:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09"/>',  roles:['admin'] },
+  ];
+
+  const visibles = todosLosModulos.filter(m => {
+    if (m.pro && !esPro) return false;
+    return !m.roles || m.roles.includes(rol);
+  });
+
+  contenido().innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.85rem;margin-bottom:1.25rem;">
+      <div style="width:44px;height:44px;border-radius:12px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      </div>
+      <div>
+        <h1 style="font-size:1.3rem;font-weight:700;color:var(--texto);margin:0;">Más</h1>
+        <p style="font-size:0.75rem;color:var(--texto-sub);margin:0;">Todas las herramientas de tu hotel en un solo lugar</p>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:0.65rem;">
+      ${visibles.map(m => `
+        <div onclick="navegarA('${m.id}')"
+          style="background:white;border:1.5px solid var(--gris-borde);border-radius:16px;padding:1rem 0.6rem;text-align:center;cursor:pointer;-webkit-tap-highlight-color:transparent;"
+          ontouchstart="this.style.transform='scale(0.95)';this.style.background='var(--gris-bg)'"
+          ontouchend="this.style.transform='';this.style.background='white'">
+          <div style="width:50px;height:50px;border-radius:14px;background:${m.bg};display:flex;align-items:center;justify-content:center;margin:0 auto 0.7rem;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="${m.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:24px;height:24px;">${m.svg}</svg>
+          </div>
+          <div style="font-weight:700;font-size:0.78rem;color:var(--texto);line-height:1.2;margin-bottom:0.2rem;">${m.label}</div>
+          <div style="font-size:0.62rem;color:var(--texto-sub);line-height:1.3;">${m.sub}</div>
+          ${m.pro ? '<div style="margin-top:0.4rem;display:inline-block;font-size:0.55rem;font-weight:700;background:#FFFBEB;color:#92400E;border:1px solid #FDE68A;border-radius:999px;padding:0.1rem 0.45rem;">PRO</div>' : ''}
+        </div>`).join('')}
+    </div>
+  `;
+}
+
+
 const COLORES_ESTADO = {
   libre:         { bg: '#F0FDF4', borde: '#16A34A', texto: '#15803D', label: 'Libre',        badgeBg:'#16A34A' },
   ocupada:       { bg: '#FEF2F2', borde: '#DC2626', texto: '#B91C1C', label: 'Ocupada',      badgeBg:'#DC2626' },
@@ -5070,9 +5124,21 @@ function renderFilasHuespedes(lista) {
 
 function filtrarHuespedes() {
   const q = (document.getElementById('hues-buscar')?.value||'').toLowerCase();
+
+  // Desktop: filtrar filas de tabla
   document.querySelectorAll('.hues-fila').forEach(tr => {
     tr.style.display = !q || tr.dataset.buscar.includes(q) ? '' : 'none';
   });
+
+  // Móvil: filtrar tarjetas
+  const contMobile = document.getElementById('hues-cards-mobile');
+  if (contMobile) {
+    const data = window._huespedesAll || [];
+    const filtrados = !q ? data : data.filter(h => {
+      return `${h.nombres||''} ${h.apellidos||''} ${h.num_doc||''} ${h.celular||''}`.toLowerCase().includes(q);
+    });
+    contMobile.innerHTML = renderTarjetasHuespedesMobile(filtrados);
+  }
 }
 
 function abrirRegistrarHuesped() {

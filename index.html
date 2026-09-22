@@ -1653,75 +1653,10 @@ function aplicarMenuMobile(sidebar, items, svgPaths) {
 }
 
 function toggleMenuMas() {
-  let panel = document.getElementById('panel-nav-mas');
-  if (panel) { panel.remove(); return; }
-
-  // Recolectar ítems ocultos
-  const btnsOcultos = [...document.querySelectorAll('#sidebar .nav-item[style*="display: none"], #sidebar .nav-item[style*="display:none"]')];
-  if (!btnsOcultos.length) return;
-
-  panel = document.createElement('div');
-  panel.id = 'panel-nav-mas';
-  panel.style.cssText = `
-    position:fixed; bottom:calc(var(--bottombar-h) + 8px); left:50%; transform:translateX(-50%);
-    background:white; border:1px solid #E2E8F0; border-radius:16px;
-    box-shadow:0 -4px 30px rgba(0,0,0,0.18); z-index:500;
-    padding:0.75rem; display:grid; grid-template-columns:repeat(3,1fr);
-    gap:0.5rem; min-width:280px; max-width:90vw;
-    animation: slideUp 0.2s cubic-bezier(0.34,1.56,0.64,1) both;
-  `;
-
-  // Estilo para la animación
-  if (!document.getElementById('style-slidup')) {
-    const st = document.createElement('style');
-    st.id = 'style-slidup';
-    st.textContent = `
-      @keyframes slideUp {
-        from { opacity:0; transform:translateX(-50%) translateY(16px); }
-        to   { opacity:1; transform:translateX(-50%) translateY(0); }
-      }
-    `;
-    document.head.appendChild(st);
-  }
-
-  btnsOcultos.forEach(btnOriginal => {
-    const modulo = btnOriginal.dataset.modulo;
-    const clone = document.createElement('button');
-    clone.style.cssText = `
-      display:flex; flex-direction:column; align-items:center; gap:0.25rem;
-      padding:0.65rem 0.5rem; border:none; background:var(--gris-bg);
-      border-radius:12px; cursor:pointer; font-size:0.65rem; color:#475569;
-      font-weight:600; font-family:inherit;
-    `;
-    // Copiar SVG y texto del original
-    clone.innerHTML = btnOriginal.innerHTML;
-    clone.querySelector('svg').style.cssText = 'width:20px;height:20px;';
-
-    // Si es el módulo activo, resaltarlo
-    if (moduloActual === modulo) {
-      clone.style.background = '#EFF6FF';
-      clone.style.color = '#2563EB';
-    }
-
-    clone.addEventListener('click', () => {
-      panel.remove();
-      navegarA(modulo);
-    });
-    panel.appendChild(clone);
-  });
-
-  document.body.appendChild(panel);
-
-  // Cerrar al hacer click fuera
-  setTimeout(() => {
-    document.addEventListener('click', function cerrar(e) {
-      if (!panel.contains(e.target) && e.target.id !== 'btn-nav-mas') {
-        panel.remove();
-        document.removeEventListener('click', cerrar);
-      }
-    });
-  }, 50);
+  // Navegar a la pantalla "Más" como módulo completo
+  navegarA('mas-mobile');
 }
+
 
 // ── Router SPA ───────────────────────────────────────────────
 let moduloActual = null;
