@@ -369,6 +369,8 @@
     #app-body {
       display: flex;
       min-height: 100vh;
+      box-sizing: border-box;
+      overflow-x: hidden;
     }
 
     #area-derecha {
@@ -934,6 +936,31 @@
 
       /* Dashboard KPIs — siempre 2 columnas en móvil */
       #dash-kpis-mobile { grid-template-columns: 1fr 1fr !important; }
+
+      /* Evitar desbordamiento horizontal */
+      #contenido {
+        padding: 0.85rem !important;
+        padding-bottom: calc(64px + 0.85rem) !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+      }
+
+      /* Todos los grids: respetar el ancho del contenedor */
+      #contenido > * { min-width: 0; }
+      #contenido [style*="display:grid"],
+      #contenido [style*="display: grid"] {
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      /* Cards dentro de grids no desbordan */
+      #dash-kpis-mobile .card,
+      .rack-stats-grid .card {
+        min-width: 0;
+        overflow: hidden;
+      }
 
       #topbar { padding: 0 0.75rem; gap: 0.4rem; }
       .topbar-search { flex: 1; max-width: none; }
