@@ -2482,7 +2482,7 @@ function renderRack() {
         ${rackStatCard('En limpieza',           conteo.limpieza,      total, '#CA8A04','#FEFCE8', 'broom')}
         ${rackStatCard('Reservadas',            conteo.reservada,     total, '#2563EB','#EFF6FF', 'calendar')}
         <div style="grid-column:1/-1;max-width:50%;margin:0 auto;width:100%;">
-          ${rackStatCard('En mantenimiento', conteo.mantenimiento, total, '#64748B','#F1F5F9', 'wrench')}
+          ${rackStatCard('Mant.', conteo.mantenimiento, total, '#64748B','#F1F5F9', 'wrench')}
         </div>
       </div>
 
@@ -2547,7 +2547,7 @@ function renderRack() {
         ${rackStatCard('Habitaciones ocupadas', conteo.ocupada,       total, '#DC2626','#FEF2F2', 'bed-ocu')}
         ${rackStatCard('En limpieza',           conteo.limpieza,      total, '#CA8A04','#FEFCE8', 'broom')}
         ${rackStatCard('Reservadas',            conteo.reservada,     total, '#2563EB','#EFF6FF', 'calendar')}
-        ${rackStatCard('En mantenimiento',      conteo.mantenimiento, total, '#64748B','#F1F5F9', 'wrench')}
+        ${rackStatCard('Mant.',      conteo.mantenimiento, total, '#64748B','#F1F5F9', 'wrench')}
       </div>
 
       ${avisoTurno}
