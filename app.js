@@ -7635,102 +7635,328 @@ async function moduloRestaurante() {
 }
 
 function renderRestaurante(mesasOcupadas) {
-  const avisoTurno = !SESSION.turnoActivo
-    ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:0.7rem 1rem;margin-bottom:1rem;font-size:0.83rem;color:#92400E;">⚠️ Abre un turno de caja antes de cobrar. <a href="#" onclick="navegarA('caja');return false;" style="font-weight:600;color:#92400E;text-decoration:underline;">Ir a Caja</a></div>` : '';
+  const total      = _restNumMesas;
+  const libres     = total - mesasOcupadas.size;
+  const ocupadas   = mesasOcupadas.size;
+  const enPrep     = _restComandas.filter(c=>(c.notas||'').includes('ESTADO:preparando')).length;
+  const listos     = _restComandas.filter(c=>(c.notas||'').includes('ESTADO:listo')).length;
+
+  // Filtro de vista activo
+  window._restFiltro = window._restFiltro || 'Todos';
+  window._restVista  = window._restVista  || 'grilla';
+
+  const avisoTurno = !SESSION.turnoActivo ? `
+    <div id="aviso-turno-rest" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#FFFBEB;border:1px solid #FDE68A;border-radius:12px;padding:0.75rem 1.1rem;margin-bottom:1.25rem;">
+      <div style="display:flex;align-items:center;gap:0.65rem;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#CA8A04" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span style="font-size:0.83rem;color:#92400E;font-weight:500;">Abre un turno de caja antes de cobrar.</span>
+        <a href="#" onclick="navegarA('caja');return false;" style="font-size:0.83rem;font-weight:700;color:#92400E;text-decoration:none;display:flex;align-items:center;gap:0.25rem;">
+          Ir a Caja →
+        </a>
+      </div>
+      <button onclick="document.getElementById('aviso-turno-rest').remove()" style="background:none;border:none;cursor:pointer;color:#CA8A04;font-size:1.1rem;padding:0;line-height:1;">✕</button>
+    </div>` : '';
 
   contenido().innerHTML = `
+    <!-- Header -->
     <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
       <div style="display:flex;align-items:center;gap:1rem;">
-        <div style="width:52px;height:52px;border-radius:14px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>
+        <div style="width:56px;height:56px;border-radius:16px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#EA580C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px;"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>
         </div>
         <div>
-          <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Restaurante</h1>
+          <h1 style="font-size:1.55rem;font-weight:700;color:var(--texto);margin:0;">Restaurante</h1>
           <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Selecciona una mesa para tomar el pedido</p>
         </div>
       </div>
-      <div style="display:flex;gap:0.5rem;align-items:center;">
-        <span style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:999px;padding:0.3rem 0.85rem;font-size:0.78rem;font-weight:600;color:#16A34A;">🟢 ${_restNumMesas - mesasOcupadas.size} libres</span>
-        <span style="background:#FEF2F2;border:1px solid #FECACA;border-radius:999px;padding:0.3rem 0.85rem;font-size:0.78rem;font-weight:600;color:#DC2626;">🔴 ${mesasOcupadas.size} ocupadas</span>
-        <button onclick="abrirConfigRestaurante()" style="width:auto;padding:0.4rem 0.75rem;background:white;border:1px solid var(--gris-borde);border-radius:8px;font-size:0.78rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.35rem;color:var(--texto-sub);">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-          Config
-        </button>
-      </div>
+      <button onclick="abrirConfigRestaurante()" style="display:flex;align-items:center;gap:0.5rem;padding:0.7rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);white-space:nowrap;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Nueva reserva
+      </button>
     </div>
 
     ${avisoTurno}
 
-    <div style="display:flex;gap:1rem;margin-bottom:1.25rem;font-size:0.8rem;color:var(--texto-sub);">
-      <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#16A34A;"></span>Libre</span>
-      <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#DC2626;"></span>Ocupada</span>
-      <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#CA8A04;"></span>Preparando</span>
-      <span style="display:flex;align-items:center;gap:0.35rem;"><span style="width:10px;height:10px;border-radius:50%;background:#2563EB;"></span>Listo para servir</span>
+    <!-- 5 tarjetas métricas -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:0.85rem;margin-bottom:1.5rem;" class="rest-metrics-grid">
+      <!-- Mesas totales -->
+      <div class="card" style="padding:1.1rem;display:flex;align-items:center;gap:0.85rem;">
+        <div style="width:44px;height:44px;border-radius:12px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>
+        </div>
+        <div>
+          <div style="font-size:1.6rem;font-weight:700;color:var(--texto);line-height:1;">${total}</div>
+          <div style="font-size:0.75rem;color:var(--texto-sub);">Mesas totales</div>
+        </div>
+      </div>
+      <!-- Libres -->
+      <div class="card" style="padding:1.1rem;display:flex;align-items:center;gap:0.85rem;">
+        <span style="width:14px;height:14px;border-radius:50%;background:#16A34A;flex-shrink:0;box-shadow:0 0 0 3px #BBF7D0;"></span>
+        <div>
+          <div style="font-size:1.6rem;font-weight:700;color:var(--texto);line-height:1;">${libres}</div>
+          <div style="font-size:0.75rem;color:var(--texto-sub);">Mesas libres</div>
+        </div>
+      </div>
+      <!-- Ocupadas -->
+      <div class="card" style="padding:1.1rem;display:flex;align-items:center;gap:0.85rem;background:#FEF2F2;border-color:#FECACA;">
+        <span style="width:14px;height:14px;border-radius:50%;background:#DC2626;flex-shrink:0;box-shadow:0 0 0 3px #FECACA;"></span>
+        <div>
+          <div style="font-size:1.6rem;font-weight:700;color:var(--texto);line-height:1;">${ocupadas}</div>
+          <div style="font-size:0.75rem;color:var(--texto-sub);">Mesas ocupadas</div>
+        </div>
+      </div>
+      <!-- En preparación -->
+      <div class="card" style="padding:1.1rem;display:flex;align-items:center;gap:0.85rem;background:#FEFCE8;border-color:#FDE68A;">
+        <span style="width:14px;height:14px;border-radius:50%;background:#CA8A04;flex-shrink:0;box-shadow:0 0 0 3px #FDE68A;"></span>
+        <div>
+          <div style="font-size:1.6rem;font-weight:700;color:var(--texto);line-height:1;">${enPrep}</div>
+          <div style="font-size:0.75rem;color:var(--texto-sub);">En preparación</div>
+        </div>
+      </div>
+      <!-- Turno -->
+      <div class="card" style="padding:1.1rem;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;">
+        <div style="display:flex;align-items:center;gap:0.65rem;">
+          <div style="width:36px;height:36px;border-radius:10px;background:#F1F5F9;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div>
+            <div style="font-size:0.72rem;color:var(--texto-sub);">Turno actual</div>
+            <div style="font-size:0.88rem;font-weight:700;color:${SESSION.turnoActivo?'#16A34A':'var(--texto-sub)'};">
+              ${SESSION.turnoActivo ? '● Abierto' : 'No iniciado'}
+            </div>
+          </div>
+        </div>
+        <button onclick="navegarA('caja')" style="padding:0.45rem 0.85rem;background:white;border:1.5px solid var(--gris-borde);border-radius:9px;font-size:0.78rem;font-weight:600;cursor:pointer;white-space:nowrap;color:var(--texto-sub);">
+          Ir a Caja
+        </button>
+      </div>
     </div>
 
-    <!-- Grid de mesas -->
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:1rem;margin-bottom:1.5rem;">
-      ${Array.from({length:_restNumMesas},(_,i)=>{
-        const num=i+1;
-        const comanda=_restComandas.find(c=>(c.notas||'').includes('MESA:'+num));
-        const ocupada=mesasOcupadas.has(num);
-        const enPrep=comanda&&(comanda.notas||'').includes('ESTADO:preparando');
-        const enListo=comanda&&(comanda.notas||'').includes('ESTADO:listo');
-        const total=comanda?(comanda.items_venta_directa||[]).reduce((s,it)=>s+Number(it.subtotal||0),0):0;
-        const color=enListo?'#2563EB':enPrep?'#CA8A04':ocupada?'#DC2626':'#16A34A';
-        const bg=enListo?'#EFF6FF':enPrep?'#FEFCE8':ocupada?'#FEF2F2':'#F0FDF4';
-        const label=enListo?'✅ Listo':enPrep?'Preparando':ocupada?'Ocupada':'Libre';
-        return `<div onclick="abrirMesaRestaurante(${num})" style="background:white;border:2px solid ${color};border-radius:14px;padding:1rem;cursor:pointer;text-align:center;transition:box-shadow 0.15s,transform 0.1s;" onmouseover="this.style.boxShadow='0 6px 20px rgba(0,0,0,0.1)';this.style.transform='translateY(-2px)'" onmouseout="this.style.boxShadow='none';this.style.transform='translateY(0)'">
-          <div style="font-size:1.75rem;margin-bottom:0.3rem;">🍽️</div>
-          <div style="font-size:1rem;font-weight:800;">Mesa ${num}</div>
-          <div style="font-size:0.7rem;font-weight:700;color:${color};background:${bg};border-radius:999px;padding:0.15rem 0.5rem;margin:0.35rem auto 0;display:inline-block;">${label}</div>
-          ${ocupada?`<div style="font-size:0.78rem;font-weight:600;color:var(--verde);margin-top:0.3rem;">${soles(total)}</div>`:''}
-        </div>`;
-      }).join('')}
+    <!-- Filtros + buscador + toggle vista -->
+    <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:1.25rem;">
+      <div style="display:flex;gap:0.35rem;flex:1;min-width:280px;flex-wrap:wrap;">
+        ${[['Todas',total],['Libres',libres],['Ocupadas',ocupadas],['Preparando',enPrep]].map(([label,cnt]) => `
+          <button onclick="setRestFiltro('${label}')" id="rest-filtro-${label}"
+            style="padding:0.5rem 1rem;border-radius:999px;font-size:0.83rem;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:0.4rem;
+              background:${window._restFiltro===label?'var(--azul)':'white'};
+              color:${window._restFiltro===label?'white':'var(--texto-sub)'};
+              border:1.5px solid ${window._restFiltro===label?'transparent':'var(--gris-borde)'};
+              box-shadow:${window._restFiltro===label?'0 4px 12px rgba(37,99,235,0.3)':'none'};">
+            ${label==='Libres'?'<span style="width:8px;height:8px;border-radius:50%;background:'+(window._restFiltro==='Libres'?'white':'#16A34A')+';"></span>':''}
+            ${label==='Ocupadas'?'<span style="width:8px;height:8px;border-radius:50%;background:'+(window._restFiltro==='Ocupadas'?'white':'#DC2626')+';"></span>':''}
+            ${label==='Preparando'?'<span style="width:8px;height:8px;border-radius:50%;background:'+(window._restFiltro==='Preparando'?'white':'#CA8A04')+';"></span>':''}
+            ${label} (${cnt})
+          </button>`).join('')}
+      </div>
+
+      <!-- Buscador de mesa -->
+      <div style="display:flex;align-items:center;gap:0.5rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.55rem 0.9rem;min-width:180px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" id="rest-buscar-mesa" placeholder="Buscar mesa…" oninput="filtrarMesasRest(this.value)"
+          style="border:none;background:none;outline:none;font-size:0.83rem;width:100%;font-family:inherit;color:var(--texto);">
+      </div>
+
+      <!-- Toggle grilla/lista -->
+      <div style="display:flex;border:1.5px solid var(--gris-borde);border-radius:10px;overflow:hidden;">
+        <button onclick="setRestVista('grilla')" title="Vista grilla"
+          style="padding:0.5rem 0.85rem;border:none;cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;font-weight:600;
+            background:${window._restVista==='grilla'?'var(--azul)':'white'};
+            color:${window._restVista==='grilla'?'white':'var(--texto-sub)'};">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+          Vista grilla
+        </button>
+        <button onclick="setRestVista('lista')" title="Vista lista"
+          style="padding:0.5rem 0.85rem;border:none;border-left:1.5px solid var(--gris-borde);cursor:pointer;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;font-weight:600;
+            background:${window._restVista==='lista'?'var(--azul)':'white'};
+            color:${window._restVista==='lista'?'white':'var(--texto-sub)'};">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          Vista lista
+        </button>
+      </div>
     </div>
 
-    <!-- Comandas activas -->
-    ${_restComandas.length?`
-    <div class="card">
-      <div style="font-weight:700;margin-bottom:0.75rem;">📋 Comandas activas (${_restComandas.length})</div>
-      ${_restComandas.map(c=>{
-        const mesa=((c.notas||'').match(/MESA:(\d+)/)||[])[1]||'?';
-        const items=c.items_venta_directa||[];
-        const total=items.reduce((s,it)=>s+Number(it.subtotal||0),0);
-        const enPrep=(c.notas||'').includes('ESTADO:preparando');
-        const enListo=(c.notas||'').includes('ESTADO:listo');
-        const estadoColor = enListo?'#2563EB':enPrep?'#CA8A04':'#DC2626';
-        const estadoBg    = enListo?'#EFF6FF':enPrep?'#FEFCE8':'#FEF2F2';
-        const estadoLabel = enListo?'✅ Listo':enPrep?'Preparando':'Abierta';
-        return `<div style="display:flex;align-items:center;gap:1rem;padding:0.6rem 0;border-bottom:1px solid var(--gris-borde);">
-          <span style="font-weight:700;min-width:60px;">Mesa ${mesa}</span>
-          <span style="flex:1;font-size:0.78rem;color:var(--texto-sub);">${items.length} ítem(s)</span>
-          <span style="font-size:0.7rem;font-weight:700;color:${estadoColor};background:${estadoBg};padding:0.2rem 0.55rem;border-radius:999px;">${estadoLabel}</span>
-          <span style="font-weight:700;color:var(--verde);">${soles(total)}</span>
-          <button onclick="abrirMesaRestaurante(${mesa})" style="${ST.btnSec};padding:0.3rem 0.6rem;font-size:0.78rem;">Ver</button>
-        </div>`;
-      }).join('')}
-    </div>`:''}
+    <!-- Grid / Lista de mesas -->
+    <div id="rest-mesas-container">
+      ${renderMesasRest(mesasOcupadas, window._restFiltro, window._restVista)}
+    </div>
 
-    <!-- Accesos rápidos gestión carta -->
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;margin-top:1rem;" class="rep-grid">
+    <!-- Accesos rápidos -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.75rem;margin-top:1.25rem;" class="rep-grid">
       <button onclick="abrirGestionCarta()" style="padding:0.85rem;background:white;border:1.5px solid var(--gris-borde);border-radius:12px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:0.75rem;">
-        <div style="width:38px;height:38px;border-radius:10px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.25rem;">🥤</div>
-        <div><div style="font-weight:700;font-size:0.9rem;">Carta fija</div><div style="font-size:0.75rem;color:var(--texto-sub);">${_restCartaFija.length} productos · bebidas, snacks, etc.</div></div>
+        <div style="width:38px;height:38px;border-radius:10px;background:#FFF7ED;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.2rem;">🥤</div>
+        <div><div style="font-weight:700;font-size:0.88rem;">Carta fija</div><div style="font-size:0.73rem;color:var(--texto-sub);">${_restCartaFija.length} productos</div></div>
       </button>
       <button onclick="abrirGestionMenuDia()" style="padding:0.85rem;background:white;border:1.5px solid var(--gris-borde);border-radius:12px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:0.75rem;">
-        <div style="width:38px;height:38px;border-radius:10px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.25rem;">🍽️</div>
-        <div><div style="font-weight:700;font-size:0.9rem;">Menú del día</div><div style="font-size:0.75rem;color:var(--texto-sub);">${_restMenuDia.length} platos hoy · se actualiza diario</div></div>
+        <div style="width:38px;height:38px;border-radius:10px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.2rem;">🍽️</div>
+        <div><div style="font-weight:700;font-size:0.88rem;">Menú del día</div><div style="font-size:0.73rem;color:var(--texto-sub);">${_restMenuDia.length} platos hoy</div></div>
       </button>
       <button onclick="abrirComprobantesRestaurante()" style="padding:0.85rem;background:white;border:1.5px solid var(--gris-borde);border-radius:12px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:0.75rem;">
-        <div style="width:38px;height:38px;border-radius:10px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.25rem;">🧾</div>
-        <div><div style="font-weight:700;font-size:0.9rem;">Comprobantes</div><div style="font-size:0.75rem;color:var(--texto-sub);">Boletas y facturas del restaurante</div></div>
+        <div style="width:38px;height:38px;border-radius:10px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.2rem;">🧾</div>
+        <div><div style="font-weight:700;font-size:0.88rem;">Comprobantes</div><div style="font-size:0.73rem;color:var(--texto-sub);">Boletas y facturas</div></div>
       </button>
     </div>
   `;
 }
 
-// ── Comprobantes del restaurante ────────────────────────────
+function renderMesasRest(mesasOcupadas, filtro='Todos', vista='grilla') {
+  const mesas = Array.from({length:_restNumMesas},(_,i) => {
+    const num     = i + 1;
+    const comanda = _restComandas.find(c=>(c.notas||'').includes('MESA:'+num));
+    const ocupada = mesasOcupadas.has(num);
+    const enPrep  = comanda && (comanda.notas||'').includes('ESTADO:preparando');
+    const enListo = comanda && (comanda.notas||'').includes('ESTADO:listo');
+    const total   = comanda ? (comanda.items_venta_directa||[]).reduce((s,it)=>s+Number(it.subtotal||0),0) : 0;
+    const color   = enListo?'#2563EB':enPrep?'#CA8A04':ocupada?'#DC2626':'#16A34A';
+    const bg      = enListo?'#EFF6FF':enPrep?'#FEFCE8':ocupada?'#FEF2F2':'#F0FDF4';
+    const label   = enListo?'Listo':enPrep?'Preparando':ocupada?'Ocupada':'Libre';
+    return { num, ocupada, enPrep, enListo, total, color, bg, label };
+  });
+
+  // Filtrar
+  const filtradas = filtro === 'Todos' || filtro === 'Todas' ? mesas
+    : filtro === 'Libres'     ? mesas.filter(m => !m.ocupada)
+    : filtro === 'Ocupadas'   ? mesas.filter(m => m.ocupada && !m.enPrep && !m.enListo)
+    : filtro === 'Preparando' ? mesas.filter(m => m.enPrep)
+    : mesas;
+
+  if (!filtradas.length) return `<div style="text-align:center;padding:3rem;color:var(--texto-sub);">Sin mesas con ese filtro</div>`;
+
+  if (vista === 'lista') {
+    return `
+      <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;overflow:hidden;">
+        ${filtradas.map(m => `
+          <div onclick="abrirMesaRestaurante(${m.num})" style="display:flex;align-items:center;gap:1rem;padding:0.9rem 1.25rem;border-bottom:1px solid var(--gris-borde);cursor:pointer;transition:background 0.1s;" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background=''">
+            <div style="width:40px;height:40px;border-radius:10px;background:${m.bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:700;font-size:0.9rem;color:${m.color};">${m.num}</div>
+            <div style="flex:1;">
+              <div style="font-weight:700;font-size:0.9rem;">Mesa ${m.num}</div>
+              <div style="font-size:0.75rem;color:var(--texto-sub);">4 personas</div>
+            </div>
+            <span style="font-size:0.72rem;font-weight:700;color:${m.color};background:${m.bg};padding:0.2rem 0.7rem;border-radius:999px;">● ${m.label}</span>
+            ${m.ocupada ? `<span style="font-weight:700;color:#16A34A;">${soles(m.total)}</span>` : ''}
+            <span style="font-size:0.8rem;color:var(--azul);font-weight:600;">Tomar pedido →</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#CBD5E1" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>`).join('')}
+      </div>`;
+  }
+
+  // Vista grilla
+  return `
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;">
+      ${filtradas.map(m => `
+        <div onclick="abrirMesaRestaurante(${m.num})"
+          style="background:white;border:1.5px solid ${m.ocupada?m.color:'var(--gris-borde)'};border-radius:16px;padding:1.25rem;cursor:pointer;transition:box-shadow 0.15s,transform 0.1s;position:relative;"
+          onmouseover="this.style.boxShadow='0 6px 20px rgba(0,0,0,0.1)';this.style.transform='translateY(-2px)'"
+          onmouseout="this.style.boxShadow='none';this.style.transform='translateY(0)'">
+          <!-- Badge estado arriba derecha -->
+          <span style="position:absolute;top:0.75rem;right:0.75rem;font-size:0.68rem;font-weight:700;color:${m.color};background:${m.bg};padding:0.2rem 0.6rem;border-radius:999px;display:flex;align-items:center;gap:0.3rem;">
+            <span style="width:6px;height:6px;border-radius:50%;background:${m.color};"></span>
+            ${m.label}
+          </span>
+          <!-- Nombre -->
+          <div style="font-size:1.15rem;font-weight:800;color:var(--texto);margin-bottom:0.2rem;">Mesa ${m.num}</div>
+          <div style="font-size:0.78rem;color:var(--texto-sub);margin-bottom:${m.ocupada?'0.6rem':'1rem'};">4 personas</div>
+          ${m.ocupada ? `<div style="font-size:0.85rem;font-weight:700;color:#16A34A;margin-bottom:0.75rem;">${soles(m.total)}</div>` : ''}
+          <!-- Divider -->
+          <div style="height:1px;background:var(--gris-borde);margin-bottom:0.75rem;"></div>
+          <!-- Link tomar pedido + flecha -->
+          <div style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:0.8rem;font-weight:600;color:var(--azul);">Tomar pedido →</span>
+            <div style="width:28px;height:28px;border-radius:50%;border:1.5px solid var(--gris-borde);display:flex;align-items:center;justify-content:center;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6"/></svg>
+            </div>
+          </div>
+        </div>`).join('')}
+    </div>`;
+}
+
+function setRestFiltro(filtro) {
+  window._restFiltro = filtro;
+  const cont = document.getElementById('rest-mesas-container');
+  const mesasOcupadas = new Set(_restComandas.map(c => {
+    const m = (c.notas||'').match(/MESA:(\d+)/);
+    return m ? parseInt(m[1]) : null;
+  }).filter(Boolean));
+  // Actualizar estilos de pills
+  document.querySelectorAll('[id^="rest-filtro-"]').forEach(btn => {
+    const activo = btn.id === 'rest-filtro-' + filtro;
+    btn.style.background   = activo ? 'var(--azul)' : 'white';
+    btn.style.color        = activo ? 'white' : 'var(--texto-sub)';
+    btn.style.borderColor  = activo ? 'transparent' : 'var(--gris-borde)';
+    btn.style.boxShadow    = activo ? '0 4px 12px rgba(37,99,235,0.3)' : 'none';
+  });
+  if (cont) cont.innerHTML = renderMesasRest(mesasOcupadas, filtro, window._restVista);
+}
+
+function setRestVista(vista) {
+  window._restVista = vista;
+  const mesasOcupadas = new Set(_restComandas.map(c => {
+    const m = (c.notas||'').match(/MESA:(\d+)/);
+    return m ? parseInt(m[1]) : null;
+  }).filter(Boolean));
+  document.querySelectorAll('[onclick^="setRestVista"]').forEach(btn => {
+    const v = btn.getAttribute('onclick').includes('grilla') ? 'grilla' : 'lista';
+    btn.style.background = v === vista ? 'var(--azul)' : 'white';
+    btn.style.color      = v === vista ? 'white' : 'var(--texto-sub)';
+  });
+  const cont = document.getElementById('rest-mesas-container');
+  if (cont) cont.innerHTML = renderMesasRest(mesasOcupadas, window._restFiltro, vista);
+}
+
+function filtrarMesasRest(q) {
+  const mesasOcupadas = new Set(_restComandas.map(c => {
+    const m = (c.notas||'').match(/MESA:(\d+)/);
+    return m ? parseInt(m[1]) : null;
+  }).filter(Boolean));
+  const cont = document.getElementById('rest-mesas-container');
+  if (!cont) return;
+  if (!q.trim()) {
+    cont.innerHTML = renderMesasRest(mesasOcupadas, window._restFiltro, window._restVista);
+    return;
+  }
+  // Filtrar por número de mesa
+  const num = parseInt(q);
+  const todas = Array.from({length:_restNumMesas},(_,i)=>i+1).filter(n =>
+    String(n).includes(q.trim()) || ('mesa '+n).includes(q.toLowerCase())
+  );
+  // Crear set ficticio con las mesas encontradas
+  const mesasFiltradas = {
+    has: n => mesasOcupadas.has(n) && todas.includes(n) || (!mesasOcupadas.has(n) && todas.includes(n))
+  };
+  // Render solo las mesas que coinciden
+  const html = todas.length === 0
+    ? `<div style="text-align:center;padding:2rem;color:var(--texto-sub);">Sin resultados para "${escapeHtml(q)}"</div>`
+    : renderMesasRestLista(mesasOcupadas, todas);
+  cont.innerHTML = html;
+}
+
+function renderMesasRestLista(mesasOcupadas, nums) {
+  return `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:1rem;">
+    ${nums.map(num => {
+      const comanda = _restComandas.find(c=>(c.notas||'').includes('MESA:'+num));
+      const ocupada = mesasOcupadas.has(num);
+      const enPrep  = comanda && (comanda.notas||'').includes('ESTADO:preparando');
+      const enListo = comanda && (comanda.notas||'').includes('ESTADO:listo');
+      const total   = comanda ? (comanda.items_venta_directa||[]).reduce((s,it)=>s+Number(it.subtotal||0),0) : 0;
+      const color   = enListo?'#2563EB':enPrep?'#CA8A04':ocupada?'#DC2626':'#16A34A';
+      const bg      = enListo?'#EFF6FF':enPrep?'#FEFCE8':ocupada?'#FEF2F2':'#F0FDF4';
+      const label   = enListo?'Listo':enPrep?'Preparando':ocupada?'Ocupada':'Libre';
+      return `<div onclick="abrirMesaRestaurante(${num})" style="background:white;border:1.5px solid ${ocupada?color:'var(--gris-borde)'};border-radius:16px;padding:1.25rem;cursor:pointer;position:relative;" onmouseover="this.style.boxShadow='0 6px 20px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'">
+        <span style="position:absolute;top:0.75rem;right:0.75rem;font-size:0.68rem;font-weight:700;color:${color};background:${bg};padding:0.2rem 0.6rem;border-radius:999px;">● ${label}</span>
+        <div style="font-size:1.1rem;font-weight:800;margin-bottom:0.2rem;">Mesa ${num}</div>
+        <div style="font-size:0.78rem;color:var(--texto-sub);margin-bottom:0.75rem;">4 personas</div>
+        <div style="height:1px;background:var(--gris-borde);margin-bottom:0.65rem;"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <span style="font-size:0.8rem;font-weight:600;color:var(--azul);">Tomar pedido →</span>
+          <div style="width:28px;height:28px;border-radius:50%;border:1.5px solid var(--gris-borde);display:flex;align-items:center;justify-content:center;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6"/></svg>
+          </div>
+        </div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+
 async function abrirComprobantesRestaurante() {
   try {
     // Traer comprobantes de ventas_directas (mesas) de los últimos 30 días
