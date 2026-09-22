@@ -6,7 +6,16 @@
   <title>HospedaYa — Sistema de Gestión Hotelera</title>
 
   <!-- Tailwind CDN -->
-  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- ═══ PWA ═══ -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2563EB">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="HospedaYa">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <!-- ══════════ -->
 
   <!-- Google Fonts: Inter + Playfair Display -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -1907,3 +1916,51 @@ document.getElementById('btn-salir').addEventListener('click', async () => {
 
 </body>
 </html>
+<script>
+// ── Registro del Service Worker + Auto-actualización ─────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+      const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      console.log('[PWA] SW registrado:', reg.scope);
+
+      // Detectar nueva versión disponible
+      reg.addEventListener('updatefound', () => {
+        const nuevoSW = reg.installing;
+        nuevoSW.addEventListener('statechange', () => {
+          if (nuevoSW.state === 'installed' && navigator.serviceWorker.controller) {
+            // Hay actualización lista — activarla automáticamente
+            console.log('[PWA] Nueva versión disponible, actualizando...');
+            nuevoSW.postMessage({ tipo: 'SKIP_WAITING' });
+          }
+        });
+      });
+
+      // Cuando el SW toma control → recargar para aplicar cambios
+      let swRefrescando = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!swRefrescando) {
+          swRefrescando = true;
+          console.log('[PWA] SW actualizado, recargando...');
+          window.location.reload();
+        }
+      });
+
+      // Escuchar mensajes del SW (nueva versión activa)
+      navigator.serviceWorker.addEventListener('message', e => {
+        if (e.data && e.data.tipo === 'SW_ACTUALIZADO') {
+          console.log('[PWA] Versión activa:', e.data.version);
+        }
+      });
+
+      // Verificar actualizaciones cada 10 minutos
+      setInterval(() => {
+        reg.update().catch(() => {});
+      }, 10 * 60 * 1000);
+
+    } catch (err) {
+      console.warn('[PWA] Error registrando SW:', err);
+    }
+  });
+}
+</script>
