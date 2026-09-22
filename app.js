@@ -45,15 +45,21 @@ function skeleton() {
 // ── Modal genérico reutilizable ─────────────────────────────
 function abrirModal(titulo, htmlContenido, opciones = {}) {
   cerrarModal();
+  // FIX 3: Guardar posición del scroll y bloquear body
+  window._modalScrollY = window.scrollY;
+  document.body.classList.add('modal-abierto');
+  document.body.style.top = `-${window._modalScrollY}px`;
+
   const overlay = document.createElement('div');
   overlay.id = 'modal-generico';
   overlay.style.cssText = `
     position:fixed; inset:0; background:rgba(15,39,102,0.55);
     backdrop-filter:blur(4px); z-index:8000; display:flex;
-    align-items:center; justify-content:center; padding:1.25rem;`;
+    align-items:center; justify-content:center; padding:1.25rem;
+    overflow-y:auto; -webkit-overflow-scrolling:touch;`;
   overlay.innerHTML = `
     <div style="background:white; border-radius:18px; max-width:${opciones.ancho || '520px'};
-                width:100%; max-height:90vh; overflow-y:auto;
+                width:100%; max-height:90vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
                 box-shadow:0 25px 60px rgba(0,0,0,0.3);">
       <div style="display:flex; align-items:center; justify-content:space-between;
                   padding:1.25rem 1.5rem; border-bottom:1px solid var(--gris-borde); position:sticky; top:0; background:white; z-index:1;">
@@ -66,6 +72,12 @@ function abrirModal(titulo, htmlContenido, opciones = {}) {
       </div>
       <div style="padding:1.5rem;">${htmlContenido}</div>
     </div>`;
+
+  // Evitar que el scroll del overlay mueva la página de atrás
+  overlay.addEventListener('touchmove', e => {
+    if (e.target === overlay) e.preventDefault();
+  }, { passive: false });
+
   overlay.addEventListener('click', e => { if (e.target === overlay) cerrarModal(); });
   document.body.appendChild(overlay);
 }
@@ -73,6 +85,13 @@ function abrirModal(titulo, htmlContenido, opciones = {}) {
 function cerrarModal() {
   const m = document.getElementById('modal-generico');
   if (m) m.remove();
+  // FIX 3: Restaurar scroll del body
+  document.body.classList.remove('modal-abierto');
+  document.body.style.top = '';
+  if (window._modalScrollY !== undefined) {
+    window.scrollTo(0, window._modalScrollY);
+    window._modalScrollY = undefined;
+  }
 }
 
 // Estilos de inputs/botones reutilizables (inline para no depender de más CSS)

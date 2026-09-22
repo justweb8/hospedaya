@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  
   <title>HospedaYa — Sistema de Gestión Hotelera</title>
 
   <!-- Tailwind CDN -->
@@ -16,6 +16,8 @@
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link rel="icon" type="image/png" href="favicon.png">
   <!-- ══════════ -->
+  <!-- FIX 1: Evitar zoom al cargar y al tocar inputs -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 
   <!-- Google Fonts: Inter + Playfair Display -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -64,6 +66,22 @@
     }
 
     * { box-sizing: border-box; }
+
+    /* FIX 2: Inputs no hacen zoom en iOS (deben ser mínimo 16px) */
+    input, select, textarea {
+      font-size: 16px !important;
+    }
+    /* Excepto en desktop donde se ven bien pequeños */
+    @media (min-width: 769px) {
+      input, select, textarea { font-size: inherit !important; }
+    }
+
+    /* FIX 3: Evitar scroll del body cuando hay modal abierto */
+    body.modal-abierto {
+      overflow: hidden !important;
+      position: fixed !important;
+      width: 100% !important;
+    }
 
     body {
       font-family: 'Inter', sans-serif;
