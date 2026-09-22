@@ -122,6 +122,7 @@ function renderModulo(modulo) {
     case 'cocina':           return moduloCocina();
     case 'rack':             return moduloRack();
     case 'reservas':         return moduloReservas();
+    case 'calendario':       return moduloCalendario();
     case 'huespedes':        return moduloHuespedes();
     case 'caja':             return moduloCaja();
     case 'tiendita':         return moduloTiendita();
@@ -4303,6 +4304,409 @@ async function setEstadoHab(habId, estado) {
 // ════════════════════════════════════════════════════════════
 //  HOTEL › RESERVAS A FUTURO
 // ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
+//  MÓDULO CALENDARIO DE RESERVAS
+// ════════════════════════════════════════════════════════════
+async function moduloCalendario() {
+  skeleton();
+  try {
+    // Cargar habitaciones y reservas del mes actual ±2 meses
+    const hoy = new Date();
+    const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
+    const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 3, 0);
+
+    const [{ data: habs }, { data: reservas }] = await Promise.all([
+      db.from('habitaciones').select('id,numero,piso,tipos_habitacion(nombre)')
+        .eq('hotel_id', SESSION.hotel.id).order('numero'),
+      db.from('estadias_reservas')
+        .select('id,fecha_entrada,fecha_salida_prev,fecha_salida_real,estado,habitacion_id,huesped_id,huespedes(nombres,apellidos)')
+        .eq('hotel_id', SESSION.hotel.id)
+        .gte('fecha_entrada', desde.toISOString())
+        .lte('fecha_entrada', hasta.toISOString())
+        .in('estado', ['reservada','activa','check_out'])
+    ]);
+
+    window._calHabs     = habs || [];
+    window._calReservas = reservas || [];
+    window._calVista    = window._calVista || 'gantt';
+    window._calFecha    = window._calFecha || new Date();
+
+    renderCalendario();
+  } catch(err) {
+    contenido().innerHTML = errorBox('No se pudo cargar el calendario', err.message);
+  }
+}
+
+function renderCalendario() {
+  const habs     = window._calHabs || [];
+  const reservas = window._calReservas || [];
+  const vista    = window._calVista;
+  const fecha    = window._calFecha;
+  const esMobile = window.innerWidth <= 768;
+
+  // Colores por habitación (ciclo)
+  const PALETA = ['#2563EB','#16A34A','#DC2626','#CA8A04','#7C3AED','#EA580C','#0891B2','#DB2777'];
+  const habColor = {};
+  habs.forEach((h,i) => { habColor[h.id] = PALETA[i % PALETA.length]; });
+
+  // Helpers
+  const fmtMes  = d => d.toLocaleDateString('es-PE',{month:'long',year:'numeric'});
+  const fmtCorto= d => d.toLocaleDateString('es-PE',{day:'numeric',month:'short'});
+  const DIAS_ES = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+  const MESES_ES= ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+  contenido().innerHTML = `
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;margin-bottom:1.25rem;">
+      <div style="display:flex;align-items:center;gap:0.85rem;">
+        <div style="width:${esMobile?'40':'52'}px;height:${esMobile?'40':'52'}px;border-radius:${esMobile?'12':'14'}px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:${esMobile?'20':'26'}px;height:${esMobile?'20':'26'}px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+        </div>
+        <div>
+          <h1 style="font-size:${esMobile?'1.1':'1.5'}rem;font-weight:700;color:var(--texto);margin:0;">Calendario de Reservas</h1>
+          <p style="font-size:${esMobile?'0.7':'0.83'}rem;color:var(--texto-sub);margin:0;">Visualiza la ocupación de tus habitaciones</p>
+        </div>
+      </div>
+      <!-- Toggle vista -->
+      <div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">
+        ${!esMobile ? `<button onclick="navegarA('reservas')" style="display:flex;align-items:center;gap:0.4rem;padding:0.55rem 0.9rem;background:white;border:1.5px solid var(--gris-borde);border-radius:10px;font-size:0.82rem;font-weight:600;cursor:pointer;color:var(--texto-sub);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><polyline points="15 18 9 12 15 6"/></svg>
+          Volver a Reservas
+        </button>` : ''}
+        <div style="display:flex;border:1.5px solid var(--gris-borde);border-radius:10px;overflow:hidden;background:white;">
+          ${[['gantt','🏨 Habitaciones'],['mes','📅 Mes'],['semana','📆 Semana']].map(([v,l])=>`
+            <button onclick="setCalVista('${v}')"
+              style="padding:0.5rem ${esMobile?'0.55':'0.85'}rem;border:none;cursor:pointer;font-size:${esMobile?'0.72':'0.82'}rem;font-weight:600;white-space:nowrap;
+                background:${vista===v?'var(--azul)':'white'};color:${vista===v?'white':'var(--texto-sub)'};
+                border-left:${v!=='gantt'?'1.5px solid var(--gris-borde)':'none'};">
+              ${esMobile ? l.split(' ')[0] : l}
+            </button>`).join('')}
+        </div>
+        <button onclick="abrirNuevaReserva()" style="display:flex;align-items:center;gap:0.4rem;padding:0.55rem 0.9rem;background:var(--azul);color:white;border:none;border-radius:10px;font-size:0.82rem;font-weight:700;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,0.3);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          ${esMobile?'Nueva':'+ Nueva reserva'}
+        </button>
+      </div>
+    </div>
+
+    <!-- Navegación fecha -->
+    <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:0.5rem;">
+        <button onclick="navCal(-1)" style="width:34px;height:34px;border:1.5px solid var(--gris-borde);border-radius:9px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <div style="font-size:${esMobile?'0.9':'1.05'}rem;font-weight:700;color:var(--texto);min-width:${esMobile?'140':'180'}px;text-align:center;text-transform:capitalize;">
+          ${vista==='semana' ? getSemanaLabel(fecha) : vista==='gantt' ? getMesLabel(fecha) : fmtMes(fecha)}
+        </div>
+        <button onclick="navCal(1)" style="width:34px;height:34px;border:1.5px solid var(--gris-borde);border-radius:9px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><polyline points="9 18 15 12 9 6"/></svg>
+        </button>
+        <button onclick="irHoyCal()" style="padding:0.4rem 0.85rem;background:#EFF6FF;color:var(--azul);border:1.5px solid #BFDBFE;border-radius:9px;font-size:0.8rem;font-weight:700;cursor:pointer;">Hoy</button>
+      </div>
+      <!-- Leyenda de estados -->
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-left:auto;">
+        ${[['#2563EB','Reservada'],['#16A34A','Activa'],['#64748B','Check-out']].map(([c,l])=>
+          `<div style="display:flex;align-items:center;gap:0.35rem;font-size:0.75rem;color:var(--texto-sub);">
+            <span style="width:12px;height:12px;border-radius:3px;background:${c};display:inline-block;"></span>${l}
+          </div>`).join('')}
+      </div>
+    </div>
+
+    <!-- Contenido del calendario -->
+    <div id="cal-body" style="background:white;border:1.5px solid var(--gris-borde);border-radius:16px;overflow:hidden;">
+      ${renderCalBody(habs, reservas, vista, fecha, habColor, esMobile)}
+    </div>
+
+    <!-- Stats rápidas -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(${esMobile?'140':'180'}px,1fr));gap:0.65rem;margin-top:1rem;">
+      ${calStat('Reservas este mes', reservas.filter(r=>new Date(r.fecha_entrada).getMonth()===fecha.getMonth()).length, '#2563EB','#EFF6FF')}
+      ${calStat('Habitaciones', habs.length, '#16A34A','#F0FDF4')}
+      ${calStat('Activas ahora', reservas.filter(r=>r.estado==='activa').length, '#CA8A04','#FEFCE8')}
+      ${calStat('Check-out hoy', reservas.filter(r=>{
+        const hoyStr = new Date().toISOString().slice(0,10);
+        return (r.fecha_salida_prev||'').slice(0,10)===hoyStr;
+      }).length, '#DC2626','#FEF2F2')}
+    </div>
+  `;
+}
+
+function renderCalBody(habs, reservas, vista, fecha, habColor, esMobile) {
+  if (vista === 'gantt') return renderGantt(habs, reservas, fecha, habColor, esMobile);
+  if (vista === 'mes')   return renderMes(reservas, fecha, habColor, esMobile);
+  if (vista === 'semana') return renderSemana(habs, reservas, fecha, habColor, esMobile);
+  return '';
+}
+
+// ── VISTA GANTT (por habitación) ─────────────────────────────
+function renderGantt(habs, reservas, fecha, habColor, esMobile) {
+  const dias = esMobile ? 14 : 30;
+  const inicio = new Date(fecha.getFullYear(), fecha.getMonth(), 1);
+  const celdaPx = esMobile ? 24 : 34;
+
+  // Generar array de días
+  const arrDias = Array.from({length: dias}, (_, i) => {
+    const d = new Date(inicio); d.setDate(inicio.getDate() + i); return d;
+  });
+
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  const colHab = esMobile ? '70px' : '120px';
+
+  let html = `
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch;">
+    <table style="width:100%;border-collapse:collapse;min-width:${colHab==='70px'?350:560}px;">
+      <thead>
+        <tr style="background:#F8FAFC;">
+          <th style="width:${colHab};padding:0.6rem 0.5rem;text-align:left;font-size:${esMobile?'0.65':'0.75'}rem;font-weight:700;color:var(--texto-sub);border-right:2px solid var(--gris-borde);position:sticky;left:0;background:#F8FAFC;z-index:2;">HAB.</th>
+          ${arrDias.map(d => {
+            const esHoy = d.toDateString() === hoy.toDateString();
+            const esFin = d.getDay()===0||d.getDay()===6;
+            return `<th style="width:${celdaPx}px;min-width:${celdaPx}px;padding:0.4rem 0.1rem;text-align:center;font-size:${esMobile?'0.58':'0.68'}rem;font-weight:${esHoy?'800':'600'};color:${esHoy?'var(--azul)':esFin?'#DC2626':'var(--texto-sub)'};background:${esHoy?'#EFF6FF':esFin?'#FEF2F2':'transparent'};border-right:1px solid var(--gris-borde);">
+              <div>${d.getDate()}</div>
+              <div style="font-size:0.55rem;text-transform:uppercase;">${['D','L','M','X','J','V','S'][d.getDay()]}</div>
+            </th>`;
+          }).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${habs.map((h,hi) => {
+          const resHab = reservas.filter(r => r.habitacion_id === h.id);
+          const color  = habColor[h.id] || '#2563EB';
+          return `<tr style="border-bottom:1px solid var(--gris-borde);">
+            <td style="padding:0.5rem;font-size:${esMobile?'0.7':'0.8'}rem;font-weight:700;color:var(--texto);border-right:2px solid var(--gris-borde);position:sticky;left:0;background:white;z-index:1;white-space:nowrap;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px;"></span>
+              ${escapeHtml(h.numero)}
+            </td>
+            ${arrDias.map(d => {
+              const dStr = d.toISOString().slice(0,10);
+              const res  = resHab.find(r => {
+                const ent = r.fecha_entrada.slice(0,10);
+                const sal = (r.fecha_salida_prev||r.fecha_salida_real||'').slice(0,10);
+                return dStr >= ent && dStr < sal;
+              });
+              const esHoy  = d.toDateString() === hoy.toDateString();
+              const esFin  = d.getDay()===0||d.getDay()===6;
+              const esIni  = res && res.fecha_entrada.slice(0,10) === dStr;
+              const esUlt  = res && (res.fecha_salida_prev||res.fecha_salida_real||'').slice(0,10) === new Date(d.getTime()+86400000).toISOString().slice(0,10);
+              const resColor = res ? (res.estado==='activa'?'#16A34A':res.estado==='check_out'?'#64748B':'#2563EB') : null;
+              const nombre = res ? `${res.huespedes?.nombres||''} ${res.huespedes?.apellidos||''}`.trim() : '';
+
+              return `<td style="width:${celdaPx}px;min-width:${celdaPx}px;height:38px;padding:2px 1px;border-right:1px solid var(--gris-borde);background:${esHoy?'#EFF6FF':esFin?'#FAFAFA':'white'};position:relative;" title="${res?nombre+' ('+res.estado+')':''}">
+                ${res ? `<div onclick="abrirReservaDetalle('${res.id}')" title="${nombre}" style="
+                  position:absolute;top:4px;bottom:4px;
+                  left:${esIni?'4px':'0'};right:${esUlt?'4px':'0'};
+                  background:${resColor};border-radius:${esIni&&esUlt?'6px':esIni?'6px 0 0 6px':esUlt?'0 6px 6px 0':'0'};
+                  cursor:pointer;display:flex;align-items:center;padding:0 4px;overflow:hidden;
+                  box-shadow:0 1px 4px rgba(0,0,0,0.15);">
+                  ${esIni&&!esMobile?`<span style="font-size:0.58rem;color:white;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${nombre.split(' ')[0]}</span>`:''}
+                </div>` : ''}
+              </td>`;
+            }).join('')}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>`;
+  return html;
+}
+
+// ── VISTA MES ────────────────────────────────────────────────
+function renderMes(reservas, fecha, habColor, esMobile) {
+  const año  = fecha.getFullYear();
+  const mes  = fecha.getMonth();
+  const primerDia = new Date(año, mes, 1);
+  const ultDia    = new Date(año, mes + 1, 0);
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+
+  // Empezar semana en lunes
+  let inicio = new Date(primerDia);
+  const dSemana = (primerDia.getDay() + 6) % 7;
+  inicio.setDate(inicio.getDate() - dSemana);
+
+  const celdas = [];
+  let cur = new Date(inicio);
+  while (cur <= ultDia || celdas.length % 7 !== 0) {
+    celdas.push(new Date(cur));
+    cur.setDate(cur.getDate() + 1);
+    if (celdas.length > 42) break;
+  }
+
+  const diasHeader = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const fs = esMobile ? '0.62' : '0.78';
+
+  return `
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;min-width:280px;">
+      <thead>
+        <tr>
+          ${diasHeader.map((d,i)=>`<th style="padding:${esMobile?'0.4':'0.6'}rem 0.25rem;text-align:center;font-size:${fs}rem;font-weight:700;color:${i>=5?'#DC2626':'var(--texto-sub)'};border-bottom:2px solid var(--gris-borde);">${esMobile?d[0]:d}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${Array.from({length: Math.ceil(celdas.length/7)}, (_,si) => {
+          const semana = celdas.slice(si*7, si*7+7);
+          return `<tr>
+            ${semana.map(d => {
+              const esMesCur  = d.getMonth() === mes;
+              const esHoy2    = d.toDateString() === hoy.toDateString();
+              const dStr      = d.toISOString().slice(0,10);
+              const resDelDia = reservas.filter(r => {
+                const ent = r.fecha_entrada.slice(0,10);
+                const sal = (r.fecha_salida_prev||r.fecha_salida_real||'').slice(0,10);
+                return dStr >= ent && dStr < sal;
+              });
+              const max = esMobile ? 1 : 3;
+              return `<td style="vertical-align:top;padding:${esMobile?'2':'4'}px;border:1px solid var(--gris-borde);background:${esHoy2?'#EFF6FF':'white'};min-height:${esMobile?'48':'72'}px;width:${100/7}%;">
+                <div style="font-size:${esMobile?'0.72':'0.85'}rem;font-weight:${esHoy2?'800':'600'};color:${esHoy2?'var(--azul)':esMesCur?'var(--texto)':'#CBD5E1'};margin-bottom:2px;
+                  ${esHoy2?`width:${esMobile?'20':'24'}px;height:${esMobile?'20':'24'}px;background:var(--azul);color:white;border-radius:50%;display:flex;align-items:center;justify-content:center;`:''}">${d.getDate()}</div>
+                ${esMesCur ? resDelDia.slice(0,max).map(r => {
+                  const c = r.estado==='activa'?'#16A34A':r.estado==='check_out'?'#64748B':'#2563EB';
+                  const nom = `${r.huespedes?.nombres||''}`.trim() || 'Huésped';
+                  return `<div onclick="abrirReservaDetalle('${r.id}')" title="${nom}" style="background:${c};color:white;font-size:${esMobile?'0.55':'0.68'}rem;font-weight:600;padding:1px ${esMobile?'2':'4'}px;border-radius:3px;margin-bottom:1px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esMobile?'●':nom}</div>`;
+                }).join('') : ''}
+                ${esMesCur && resDelDia.length > max ? `<div style="font-size:0.6rem;color:var(--azul);font-weight:700;cursor:pointer;">+${resDelDia.length-max} más</div>` : ''}
+              </td>`;
+            }).join('')}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>`;
+}
+
+// ── VISTA SEMANA ─────────────────────────────────────────────
+function renderSemana(habs, reservas, fecha, habColor, esMobile) {
+  const hoy = new Date(); hoy.setHours(0,0,0,0);
+  // Lunes de la semana actual
+  const lunes = new Date(fecha);
+  const dia   = (fecha.getDay() + 6) % 7;
+  lunes.setDate(fecha.getDate() - dia);
+
+  const diasSem = Array.from({length:7},(_,i)=>{ const d=new Date(lunes); d.setDate(lunes.getDate()+i); return d; });
+  const DIAS = ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
+  const fs   = esMobile ? '0.65' : '0.8';
+
+  return `
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;min-width:300px;">
+      <thead>
+        <tr style="background:#F8FAFC;">
+          <th style="width:${esMobile?'60':'100'}px;padding:0.6rem 0.5rem;border-right:2px solid var(--gris-borde);font-size:${fs}rem;color:var(--texto-sub);">HAB.</th>
+          ${diasSem.map((d,i)=>{
+            const esHoy2 = d.toDateString()===hoy.toDateString();
+            const esFin  = i>=5;
+            return `<th style="padding:0.5rem 0.25rem;text-align:center;font-size:${fs}rem;font-weight:700;
+              color:${esHoy2?'var(--azul)':esFin?'#DC2626':'var(--texto-sub)'};
+              background:${esHoy2?'#EFF6FF':esFin?'#FEF2F2':'transparent'};border-right:1px solid var(--gris-borde);">
+              <div>${DIAS[i]}</div>
+              <div style="font-size:${esMobile?'0.85':'1.05'}rem;font-weight:${esHoy2?'800':'600'};color:${esHoy2?'var(--azul)':'var(--texto)'};">${d.getDate()}</div>
+            </th>`;
+          }).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${habs.map(h => {
+          const color  = habColor[h.id]||'#2563EB';
+          const resHab = reservas.filter(r=>r.habitacion_id===h.id);
+          return `<tr style="border-bottom:1px solid var(--gris-borde);">
+            <td style="padding:0.5rem;font-size:${esMobile?'0.68':'0.8'}rem;font-weight:700;border-right:2px solid var(--gris-borde);white-space:nowrap;">
+              <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:3px;"></span>
+              ${escapeHtml(h.numero)}
+            </td>
+            ${diasSem.map(d => {
+              const dStr = d.toISOString().slice(0,10);
+              const res  = resHab.find(r=>{
+                const ent=(r.fecha_entrada||'').slice(0,10);
+                const sal=(r.fecha_salida_prev||r.fecha_salida_real||'').slice(0,10);
+                return dStr>=ent&&dStr<sal;
+              });
+              const esHoy2 = d.toDateString()===hoy.toDateString();
+              const esFin  = d.getDay()===0||d.getDay()===6;
+              const rc = res?(res.estado==='activa'?'#16A34A':res.estado==='check_out'?'#64748B':'#2563EB'):null;
+              const nom= res?`${res.huespedes?.nombres||''}`.split(' ')[0]:'';
+              return `<td style="padding:3px 2px;height:44px;border-right:1px solid var(--gris-borde);background:${esHoy2?'#EFF6FF':esFin?'#FAFAFA':'white'};">
+                ${res?`<div onclick="abrirReservaDetalle('${res.id}')" style="background:${rc};color:white;border-radius:6px;padding:2px 5px;font-size:${esMobile?'0.58':'0.68'}rem;font-weight:700;cursor:pointer;height:100%;display:flex;align-items:center;justify-content:center;text-align:center;overflow:hidden;" title="${nom}">
+                  ${esMobile?'●':nom}
+                </div>`:''}
+              </td>`;
+            }).join('')}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    </div>`;
+}
+
+// ── Helpers calendario ───────────────────────────────────────
+function getSemanaLabel(fecha) {
+  const lunes = new Date(fecha);
+  lunes.setDate(fecha.getDate() - (fecha.getDay()+6)%7);
+  const dom = new Date(lunes); dom.setDate(lunes.getDate()+6);
+  const opts = {day:'numeric',month:'short'};
+  return lunes.toLocaleDateString('es-PE',opts) + ' – ' + dom.toLocaleDateString('es-PE',opts);
+}
+function getMesLabel(fecha) {
+  return fecha.toLocaleDateString('es-PE',{month:'long',year:'numeric'});
+}
+function calStat(label, valor, color, bg) {
+  return `<div class="card" style="padding:0.85rem;display:flex;align-items:center;gap:0.75rem;min-width:0;">
+    <div style="width:36px;height:36px;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+      <div style="font-size:1.1rem;font-weight:800;color:${color};">${valor}</div>
+    </div>
+    <div style="font-size:0.75rem;color:var(--texto-sub);font-weight:500;">${label}</div>
+  </div>`;
+}
+function setCalVista(v) {
+  window._calVista = v;
+  renderCalendario();
+}
+function navCal(dir) {
+  const f = window._calFecha;
+  const v = window._calVista;
+  if (v==='semana') f.setDate(f.getDate() + dir*7);
+  else f.setMonth(f.getMonth() + dir);
+  window._calFecha = new Date(f);
+  renderCalendario();
+}
+function irHoyCal() {
+  window._calFecha = new Date();
+  renderCalendario();
+}
+function abrirReservaDetalle(id) {
+  const res = (window._calReservas||[]).find(r=>r.id===id);
+  if (!res) return;
+  const nombre = `${res.huespedes?.nombres||''} ${res.huespedes?.apellidos||''}`.trim();
+  const entrada = new Date(res.fecha_entrada).toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'});
+  const salida  = new Date(res.fecha_salida_prev||res.fecha_salida_real).toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'});
+  const estColor = res.estado==='activa'?'#16A34A':res.estado==='check_out'?'#64748B':'#2563EB';
+  abrirModal('Detalle de reserva', `
+    <div style="display:flex;flex-direction:column;gap:0.85rem;">
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <div style="width:44px;height:44px;border-radius:12px;background:#EFF6FF;color:var(--azul);font-weight:700;font-size:0.95rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          ${nombre.split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase()||'?'}
+        </div>
+        <div>
+          <div style="font-weight:700;font-size:1rem;">${escapeHtml(nombre)}</div>
+          <span style="font-size:0.72rem;font-weight:700;color:${estColor};background:${estColor+'22'};padding:0.2rem 0.65rem;border-radius:999px;">${res.estado}</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+        <div style="background:var(--gris-bg);border-radius:10px;padding:0.75rem;">
+          <div style="font-size:0.7rem;color:var(--texto-sub);">Check-in</div>
+          <div style="font-weight:700;font-size:0.9rem;">${entrada}</div>
+        </div>
+        <div style="background:var(--gris-bg);border-radius:10px;padding:0.75rem;">
+          <div style="font-size:0.7rem;color:var(--texto-sub);">Check-out</div>
+          <div style="font-weight:700;font-size:0.9rem;">${salida}</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.5rem;margin-top:0.25rem;">
+        <button onclick="cerrarModal();navegarA('reservas')" style="${ST.btnSec};flex:1;">Ver en reservas</button>
+        ${res.estado==='reservada'?`<button onclick="cerrarModal()" style="${ST.btnPri};flex:1;">Check-in</button>`:''}
+      </div>
+    </div>
+  `);
+}
+
 async function moduloReservas() {
   skeleton();
   try {
@@ -4423,7 +4827,7 @@ async function moduloReservas() {
             <div style="font-weight:700;font-size:0.85rem;color:var(--texto);">Mantén tu ocupación al día</div>
             <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.1rem;">Las reservas a futuro te ayudan a planificar mejor la operatividad de tu hotel.</div>
           </div>
-          <button style="flex-shrink:0;display:flex;align-items:center;gap:0.35rem;background:white;border:1.5px solid var(--azul);border-radius:9px;padding:0.5rem 0.75rem;font-size:0.75rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;white-space:nowrap;">
+          <button onclick="navegarA('calendario')" style="flex-shrink:0;display:flex;align-items:center;gap:0.35rem;background:white;border:1.5px solid var(--azul);border-radius:9px;padding:0.5rem 0.75rem;font-size:0.75rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;white-space:nowrap;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
             Ver calendario
           </button>
