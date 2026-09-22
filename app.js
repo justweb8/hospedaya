@@ -8729,6 +8729,247 @@ async function cargarYRenderCocina() {
     .eq('hotel_id', SESSION.hotel.id)
     .like('notas','MESA:%')
     .order('created_at',{ascending:true}).limit(100);
+
+  const activas    = (comandas||[]).filter(c=>{ const n=c.notas||''; return n.includes('ESTADO:preparando')||n.includes('ESTADO:abierta')||n.includes('ESTADO:listo'); });
+  const pendientes = activas.filter(c=>(c.notas||'').includes('ESTADO:abierta'));
+  const preparando = activas.filter(c=>(c.notas||'').includes('ESTADO:preparando'));
+  const listos     = activas.filter(c=>(c.notas||'').includes('ESTADO:listo'));
+
+  const ahora = new Date();
+  const horaStr = ahora.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+
+  contenido().innerHTML = `
+
+    <!-- Header -->
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+      <div style="display:flex;align-items:center;gap:1rem;">
+        <div style="width:56px;height:56px;border-radius:16px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:28px;height:28px;"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/></svg>
+        </div>
+        <div>
+          <h1 style="font-size:1.55rem;font-weight:700;color:var(--texto);margin:0;">Cocina / Comandas</h1>
+          <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Gestiona los pedidos del restaurante en tiempo real</p>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:1rem;">
+        <div style="display:flex;align-items:center;gap:0.6rem;font-size:0.82rem;color:var(--texto-sub);">
+          <span style="width:10px;height:10px;border-radius:50%;background:#16A34A;animation:pulse 2s infinite;"></span>
+          Auto-actualiza cada 20s
+        </div>
+        <div style="width:1px;height:22px;background:var(--gris-borde);"></div>
+        <div style="display:flex;align-items:center;gap:0.45rem;font-size:0.82rem;color:var(--texto-sub);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          ${horaStr}
+        </div>
+        <button onclick="cargarYRenderCocina()" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--gris-borde);border-radius:10px;padding:0.6rem 1.1rem;font-size:0.85rem;font-weight:600;cursor:pointer;color:var(--texto);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Actualizar
+        </button>
+      </div>
+    </div>
+
+    <!-- 4 tarjetas métricas -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;" class="cocina-metrics-grid">
+      <!-- Total en proceso -->
+      <div class="card" style="padding:1.25rem;display:flex;align-items:center;gap:1rem;">
+        <div style="width:52px;height:52px;border-radius:14px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:26px;height:26px;"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        </div>
+        <div>
+          <div style="font-size:2rem;font-weight:700;color:var(--texto);line-height:1;">${activas.length}</div>
+          <div style="font-size:0.78rem;color:var(--texto-sub);margin-top:0.2rem;">Total de comandas<br>en proceso</div>
+        </div>
+      </div>
+      <!-- Nuevas -->
+      <div class="card" style="padding:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;${pendientes.length>0?'border-color:#FECACA;background:#FEF2F2;':''}">
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <div style="width:52px;height:52px;border-radius:14px;background:${pendientes.length>0?'white':'#FEF2F2'};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2" stroke-linecap="round" style="width:26px;height:26px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+          </div>
+          <div>
+            <div style="font-size:2rem;font-weight:700;color:#DC2626;line-height:1;">${pendientes.length}</div>
+            <div style="font-size:0.82rem;font-weight:700;color:#DC2626;">Nuevas</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;opacity:0.5;"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <!-- Preparando -->
+      <div class="card" style="padding:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;${preparando.length>0?'border-color:#FDE68A;background:#FEFCE8;':''}">
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <div style="width:52px;height:52px;border-radius:14px;background:${preparando.length>0?'white':'#FEFCE8'};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#CA8A04" stroke-width="2" stroke-linecap="round" style="width:26px;height:26px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </div>
+          <div>
+            <div style="font-size:2rem;font-weight:700;color:#CA8A04;line-height:1;">${preparando.length}</div>
+            <div style="font-size:0.82rem;font-weight:700;color:#CA8A04;">Preparando</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#CA8A04" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;opacity:0.5;"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+      <!-- Listas para servir -->
+      <div class="card" style="padding:1.25rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;${listos.length>0?'border-color:#BBF7D0;background:#F0FDF4;':''}">
+        <div style="display:flex;align-items:center;gap:1rem;">
+          <div style="width:52px;height:52px;border-radius:14px;background:${listos.length>0?'white':'#F0FDF4'};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" style="width:26px;height:26px;"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <div>
+            <div style="font-size:2rem;font-weight:700;color:#16A34A;line-height:1;">${listos.length}</div>
+            <div style="font-size:0.82rem;font-weight:700;color:#16A34A;">Listas para servir</div>
+          </div>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;opacity:0.5;"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
+    </div>
+
+    <!-- 3 columnas Kanban con fondos difuminados -->
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1.5rem;" class="rep-grid">
+
+      <!-- COLUMNA: Nuevas (fondo rojo difuminado) -->
+      <div style="background:linear-gradient(135deg,#FEF2F2 0%,#FFF5F5 60%,#FFFBFB 100%);border:1.5px solid #FECACA;border-radius:18px;padding:1.1rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+          <div style="display:flex;align-items:center;gap:0.65rem;">
+            <div style="width:40px;height:40px;border-radius:12px;background:#DC2626;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/></svg>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:1rem;color:var(--texto);">Nuevas</div>
+              <div style="font-size:0.72rem;color:var(--texto-sub);">Pedidos recién recibidos</div>
+            </div>
+          </div>
+          <span style="width:28px;height:28px;border-radius:50%;background:#DC2626;color:white;font-size:0.82rem;font-weight:700;display:flex;align-items:center;justify-content:center;">${pendientes.length}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.75rem;">
+          ${pendientes.length===0
+            ? `<div style="background:white;border:2px dashed #FECACA;border-radius:14px;padding:2.5rem 1.5rem;text-align:center;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#FECACA" stroke-width="1.5" stroke-linecap="round" style="width:40px;height:40px;margin:0 auto 0.75rem;">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+                <div style="font-weight:600;font-size:0.88rem;color:var(--texto);margin-bottom:0.3rem;">No hay comandas nuevas</div>
+                <div style="font-size:0.75rem;color:var(--texto-sub);">Cuando lleguen nuevos pedidos se mostrarán aquí.</div>
+              </div>`
+            : pendientes.map(c => tarjetaComandaCocina(c,'nueva')).join('')}
+        </div>
+      </div>
+
+      <!-- COLUMNA: Preparando (fondo amarillo difuminado) -->
+      <div style="background:linear-gradient(135deg,#FEFCE8 0%,#FFFDF0 60%,#FFFFFE 100%);border:1.5px solid #FDE68A;border-radius:18px;padding:1.1rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+          <div style="display:flex;align-items:center;gap:0.65rem;">
+            <div style="width:40px;height:40px;border-radius:12px;background:#CA8A04;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:1rem;color:var(--texto);">Preparando</div>
+              <div style="font-size:0.72rem;color:var(--texto-sub);">En preparación en cocina</div>
+            </div>
+          </div>
+          <span style="width:28px;height:28px;border-radius:50%;background:#CA8A04;color:white;font-size:0.82rem;font-weight:700;display:flex;align-items:center;justify-content:center;">${preparando.length}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.75rem;">
+          ${preparando.length===0
+            ? `<div style="background:white;border:2px dashed #FDE68A;border-radius:14px;padding:2.5rem 1.5rem;text-align:center;color:var(--texto-sub);font-size:0.83rem;">Nada en preparación</div>`
+            : preparando.map(c => tarjetaComandaCocina(c,'preparando')).join('')}
+        </div>
+      </div>
+
+      <!-- COLUMNA: Listo para servir (fondo verde difuminado) -->
+      <div style="background:linear-gradient(135deg,#F0FDF4 0%,#F7FFF9 60%,#FEFFFF 100%);border:1.5px solid #BBF7D0;border-radius:18px;padding:1.1rem;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+          <div style="display:flex;align-items:center;gap:0.65rem;">
+            <div style="width:40px;height:40px;border-radius:12px;background:#16A34A;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:20px;height:20px;"><polyline points="20 6 9 17 4 12"/></svg>
+            </div>
+            <div>
+              <div style="font-weight:700;font-size:1rem;color:var(--texto);">Listo para servir</div>
+              <div style="font-size:0.72rem;color:var(--texto-sub);">Listo para llevar a la mesa</div>
+            </div>
+          </div>
+          <span style="width:28px;height:28px;border-radius:50%;background:#16A34A;color:white;font-size:0.82rem;font-weight:700;display:flex;align-items:center;justify-content:center;">${listos.length}</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:0.75rem;">
+          ${listos.length===0
+            ? `<div style="background:white;border:2px dashed #BBF7D0;border-radius:14px;padding:2.5rem 1.5rem;text-align:center;color:var(--texto-sub);font-size:0.83rem;">Sin platos listos aún</div>`
+            : listos.map(c => tarjetaComandaCocina(c,'listo')).join('')}
+        </div>
+      </div>
+    </div>
+
+    <!-- Banner inferior -->
+    <div style="background:white;border:1px solid var(--gris-borde);border-radius:16px;padding:1.25rem 1.5rem;display:flex;align-items:center;gap:1.25rem;position:relative;overflow:hidden;">
+      <!-- Cubiertos decorativos de fondo -->
+      <svg style="position:absolute;right:180px;top:50%;transform:translateY(-50%);opacity:0.08;" viewBox="0 0 60 80" width="60" height="80">
+        <line x1="10" y1="5" x2="10" y2="75" stroke="#2563EB" stroke-width="3"/>
+        <path d="M5 5 Q10 20 10 35" stroke="#2563EB" stroke-width="3" fill="none"/>
+        <path d="M15 5 Q10 20 10 35" stroke="#2563EB" stroke-width="3" fill="none"/>
+        <line x1="40" y1="5" x2="40" y2="75" stroke="#2563EB" stroke-width="3"/>
+        <ellipse cx="40" cy="18" rx="9" ry="13" stroke="#2563EB" stroke-width="3" fill="none"/>
+      </svg>
+      <div style="width:52px;height:52px;border-radius:15px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:26px;height:26px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      </div>
+      <div style="flex:1;">
+        <div style="font-weight:700;font-size:1.05rem;color:var(--texto);">Flujo más rápido, mejor servicio</div>
+        <div style="font-size:0.82rem;color:var(--texto-sub);margin-top:0.15rem;">Mantén el control de tus comandas y ofrece una experiencia increíble a tus huéspedes.</div>
+      </div>
+      <button onclick="toast('Próximamente','Reporte de ventas en desarrollo','info')" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:11px;padding:0.7rem 1.25rem;font-size:0.85rem;font-weight:600;color:var(--azul);cursor:pointer;white-space:nowrap;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+        Ver reporte de ventas
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6"/></svg>
+      </button>
+    </div>
+  `;
+}
+
+function tarjetaComandaCocina(comanda, estado) {
+  const mesa    = ((comanda.notas||'').match(/MESA:(\d+)/)||[])[1]||'?';
+  const hora    = new Date(comanda.created_at).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+  const items   = comanda.items_venta_directa||[];
+  const minutos = Math.floor((new Date()-new Date(comanda.created_at))/60000);
+  const urgente = minutos > 15;
+
+  return `
+    <div style="background:white;border:1px solid ${urgente?'#DC2626':'var(--gris-borde)'};border-radius:14px;padding:1rem;${urgente?'box-shadow:0 0 0 3px rgba(220,38,38,0.08);':''}">
+      <!-- Mesa + tiempo + ··· -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.65rem;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span style="font-weight:800;font-size:1rem;">Mesa ${escapeHtml(mesa)}</span>
+          <span style="font-size:0.72rem;color:var(--texto-sub);">${minutos} min</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.65rem;">
+          <span style="font-size:0.72rem;color:var(--texto-sub);">${hora}</span>
+          <button style="background:none;border:none;cursor:pointer;color:var(--texto-sub);font-size:1.1rem;padding:0;line-height:1;">⋯</button>
+        </div>
+      </div>
+      <!-- Items -->
+      <div style="margin-bottom:0.85rem;">
+        ${items.map(it=>`
+          <div style="display:flex;align-items:center;gap:0.6rem;padding:0.25rem 0;">
+            <span style="font-size:0.82rem;font-weight:700;color:var(--texto-sub);min-width:22px;">${it.cantidad}x</span>
+            <span style="font-size:0.85rem;">${escapeHtml(it.descripcion)}</span>
+          </div>`).join('')}
+      </div>
+      <!-- Botón acción -->
+      ${estado==='nueva'
+        ? `<button onclick="moverComandaCocina('${comanda.id}','preparando')"
+            style="width:100%;padding:0.65rem;background:#EA580C;color:white;border:none;border-radius:10px;font-size:0.83rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;">
+            🔥 Empezar a preparar
+          </button>`
+        : estado==='preparando'
+        ? `<button onclick="moverComandaCocina('${comanda.id}','listo')"
+            style="width:100%;padding:0.65rem;background:#FEFCE8;color:#CA8A04;border:1.5px solid #FDE68A;border-radius:10px;font-size:0.83rem;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;">
+            ✅ Marcar como listo
+          </button>`
+        : `<div style="width:100%;padding:0.65rem;background:#EFF6FF;border-radius:10px;font-size:0.83rem;font-weight:700;color:#2563EB;display:flex;align-items:center;justify-content:center;gap:0.5rem;">
+            🛎️ Esperando que el mozo lo sirva
+          </div>`}
+    </div>`;
+}
+
+  const { data: comandas } = await db.from('ventas_directas')
+    .select('*, items_venta_directa(*)')
+    .eq('hotel_id', SESSION.hotel.id)
+    .like('notas','MESA:%')
+    .order('created_at',{ascending:true}).limit(100);
   const activas = (comandas||[]).filter(c=>{ const n=c.notas||''; return n.includes('ESTADO:preparando')||n.includes('ESTADO:abierta')||n.includes('ESTADO:listo'); });
   const pendientes = activas.filter(c=>(c.notas||'').includes('ESTADO:abierta'));
   const preparando = activas.filter(c=>(c.notas||'').includes('ESTADO:preparando'));
