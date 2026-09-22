@@ -1412,6 +1412,17 @@
 <script src="facturacionSunat.js"></script>
 <script>
 
+// ── inicializarApiDoc — definida aquí para garantizar orden de carga ─
+async function inicializarApiDoc() {
+  if (!SESSION?.hotel && !SESSION?.perfil?.es_superadmin) return;
+  try {
+    const { data } = await db.rpc('fn_consultar_documento', { p_tipo: 'ping', p_numero: '' });
+    API_DOC.activa = !data?.error?.includes('no configurado');
+  } catch(_) {
+    API_DOC.activa = true;
+  }
+}
+
 // ── Toast helper ─────────────────────────────────────────────
 function toast(titulo, msg = '', tipo = 'info', duracion = 5000) {
   const iconos = {
@@ -1855,7 +1866,7 @@ db.auth.onAuthStateChange(async (event, session) => {
 
     // Notificaciones — cargar al inicio y refrescar cada 5 min
     if (!SESSION.perfil.es_superadmin) {
-      await inicializarApiDoc();        // activa autocompletado DNI/RUC si hay token
+      if (typeof inicializarApiDoc === 'function') await inicializarApiDoc();
       await cargarNotificaciones();
       if (window._notiTicker) clearInterval(window._notiTicker);
       window._notiTicker = setInterval(cargarNotificaciones, 5 * 60 * 1000);

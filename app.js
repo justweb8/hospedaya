@@ -142,22 +142,6 @@ function renderModulo(modulo) {
 const API_DOC = { activa: false };
 
 // Verifica si el servicio global está activo (sin exponer el token)
-async function inicializarApiDoc() {
-  if (!SESSION.hotel && !SESSION.perfil?.es_superadmin) return;
-  try {
-    // Intentamos una consulta vacía para ver si la RPC responde
-    // (si el token no está configurado devuelve error controlado)
-    const { data } = await db.rpc('fn_consultar_documento', { p_tipo: 'ping', p_numero: '' });
-    // Si devuelve error de "no configurado" el servicio no está listo
-    // Si devuelve cualquier otra respuesta, está activo
-    API_DOC.activa = !data?.error?.includes('no configurado');
-  } catch(_) {
-    // Si la RPC existe pero falla por otro motivo, la marcamos activa
-    // para que intente y falle con mensaje al usuario
-    API_DOC.activa = true;
-  }
-}
-
 // Consulta DNI — usa la RPC unificada (token nunca sale al browser)
 async function consultarDNI(dni) {
   if (!API_DOC.activa) return null;
@@ -8963,80 +8947,6 @@ function tarjetaComandaCocina(comanda, estado) {
             🛎️ Esperando que el mozo lo sirva
           </div>`}
     </div>`;
-}
-
-  const { data: comandas } = await db.from('ventas_directas')
-    .select('*, items_venta_directa(*)')
-    .eq('hotel_id', SESSION.hotel.id)
-    .like('notas','MESA:%')
-    .order('created_at',{ascending:true}).limit(100);
-  const activas = (comandas||[]).filter(c=>{ const n=c.notas||''; return n.includes('ESTADO:preparando')||n.includes('ESTADO:abierta')||n.includes('ESTADO:listo'); });
-  const pendientes = activas.filter(c=>(c.notas||'').includes('ESTADO:abierta'));
-  const preparando = activas.filter(c=>(c.notas||'').includes('ESTADO:preparando'));
-  const listos     = activas.filter(c=>(c.notas||'').includes('ESTADO:listo'));
-
-  contenido().innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1.25rem;">
-      <div style="display:flex;align-items:center;gap:1rem;">
-        <div style="width:52px;height:52px;border-radius:14px;background:#F0FDF4;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:26px;height:26px;"><path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/></svg>
-        </div>
-        <div>
-          <h1 style="font-size:1.5rem;font-weight:700;color:var(--texto);margin:0;">Cocina / Comandas</h1>
-          <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Panel en tiempo real · Auto-actualiza cada 20s</p>
-        </div>
-      </div>
-      <button onclick="cargarYRenderCocina()" style="${ST.btnSec};padding:0.5rem 0.9rem;display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-        Actualizar
-      </button>
-    </div>
-    ${activas.length===0?`
-      <div class="card" style="text-align:center;padding:3rem;">
-        <div style="font-size:3rem;margin-bottom:0.75rem;">👨‍🍳</div>
-        <div style="font-weight:700;font-size:1.1rem;margin-bottom:0.4rem;">¡Todo al día!</div>
-        <div style="font-size:0.85rem;color:var(--texto-sub);">No hay comandas pendientes.</div>
-      </div>
-    `:`
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;" class="rep-grid">
-      <div>
-        <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.85rem;">
-          <div style="width:12px;height:12px;border-radius:50%;background:#DC2626;"></div>
-          <span style="font-weight:700;font-size:1rem;">Nuevas</span>
-          <span style="background:#FEF2F2;color:#DC2626;font-size:0.72rem;font-weight:700;padding:0.15rem 0.55rem;border-radius:999px;">${pendientes.length}</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:0.75rem;">
-          ${pendientes.length===0
-            ?`<div style="background:white;border:2px dashed var(--gris-borde);border-radius:14px;padding:2rem;text-align:center;color:var(--texto-sub);font-size:0.83rem;">Sin comandas nuevas</div>`
-            :pendientes.map(c=>tarjetaComandaCocina(c,'nueva')).join('')}
-        </div>
-      </div>
-      <div>
-        <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.85rem;">
-          <div style="width:12px;height:12px;border-radius:50%;background:#CA8A04;"></div>
-          <span style="font-weight:700;font-size:1rem;">Preparando</span>
-          <span style="background:#FEFCE8;color:#CA8A04;font-size:0.72rem;font-weight:700;padding:0.15rem 0.55rem;border-radius:999px;">${preparando.length}</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:0.75rem;">
-          ${preparando.length===0
-            ?`<div style="background:white;border:2px dashed var(--gris-borde);border-radius:14px;padding:2rem;text-align:center;color:var(--texto-sub);font-size:0.83rem;">Nada en preparación</div>`
-            :preparando.map(c=>tarjetaComandaCocina(c,'preparando')).join('')}
-        </div>
-      </div>
-      <div>
-        <div style="display:flex;align-items:center;gap:0.6rem;margin-bottom:0.85rem;">
-          <div style="width:12px;height:12px;border-radius:50%;background:#2563EB;"></div>
-          <span style="font-weight:700;font-size:1rem;">Listo para servir</span>
-          <span style="background:#EFF6FF;color:#2563EB;font-size:0.72rem;font-weight:700;padding:0.15rem 0.55rem;border-radius:999px;">${listos.length}</span>
-        </div>
-        <div style="display:flex;flex-direction:column;gap:0.75rem;">
-          ${listos.length===0
-            ?`<div style="background:white;border:2px dashed var(--gris-borde);border-radius:14px;padding:2rem;text-align:center;color:var(--texto-sub);font-size:0.83rem;">Sin platos listos</div>`
-            :listos.map(c=>tarjetaComandaCocina(c,'listo')).join('')}
-        </div>
-      </div>
-    </div>`}
-  `;
 }
 
 function tarjetaComandaCocina(comanda, estado) {
