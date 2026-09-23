@@ -1,111 +1,82 @@
-// HospedaYa Service Worker — Auto-actualización v1
-// Cambia este número cada vez que hagas deploy para forzar update
-const CACHE_VERSION = 'hospedaya-v1';
-const CACHE_STATIC  = 'hospedaya-static-v1';
+// HospedaYa Service Worker — GitHub Pages compatible
+const CACHE_NAME = 'hospedaya-v2';
 
-// Archivos que se cachean en la instalación
-const ARCHIVOS_CACHE = [
-  '/',
-  '/index.html',
-  '/app.js',
-  '/facturacionSunat.js',
-  '/config.js',
-  '/supabaseClient.js',
-  '/manifest.json',
-  '/icon-192x192.png',
-  '/icon-512x512.png',
+const ARCHIVOS = [
+  './',
+  './index.html',
+  './app.js',
+  './facturacionSunat.js',
+  './config.js',
+  './supabaseClient.js',
+  './manifest.json',
+  './icon-192x192.png',
+  './icon-512x512.png',
 ];
 
-// ── INSTALACIÓN: pre-cachear archivos estáticos ──────────────
+// INSTALACIÓN
 self.addEventListener('install', e => {
-  console.log('[SW] Instalando versión:', CACHE_VERSION);
+  console.log('[SW] Instalando', CACHE_NAME);
   e.waitUntil(
-    caches.open(CACHE_STATIC).then(cache => {
-      return cache.addAll(ARCHIVOS_CACHE).catch(err => {
-        console.warn('[SW] Error cacheando algunos archivos:', err);
-      });
-    }).then(() => {
-      // ⭐ CLAVE: activar inmediatamente sin esperar que el tab se cierre
-      return self.skipWaiting();
-    })
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(ARCHIVOS).catch(err => console.warn('[SW] Error cache:', err)))
+      .then(() => self.skipWaiting())
   );
 });
 
-// ── ACTIVACIÓN: limpiar cachés viejos y tomar control ────────
+// ACTIVACIÓN — limpiar cachés viejos
 self.addEventListener('activate', e => {
-  console.log('[SW] Activando versión:', CACHE_VERSION);
+  console.log('[SW] Activando', CACHE_NAME);
   e.waitUntil(
-    caches.keys().then(keys =>
-      Promise.all(
-        keys
-          .filter(key => key !== CACHE_STATIC && key !== CACHE_VERSION)
-          .map(key => {
-            console.log('[SW] Eliminando caché viejo:', key);
-            return caches.delete(key);
-          })
-      )
-    ).then(() => {
-      // ⭐ CLAVE: tomar control de TODOS los tabs abiertos inmediatamente
-      return self.clients.claim();
-    }).then(() => {
-      // Notificar a todos los tabs que hay una nueva versión
-      self.clients.matchAll({ type: 'window' }).then(clients => {
-        clients.forEach(client => {
-          client.postMessage({ tipo: 'SW_ACTUALIZADO', version: CACHE_VERSION });
-        });
-      });
-    })
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k))
+      ))
+      .then(() => self.clients.claim())
+      .then(() => {
+        self.clients.matchAll({ type:'window' }).then(clients =>
+          clients.forEach(c => c.postMessage({ tipo:'SW_ACTUALIZADO', version: CACHE_NAME }))
+        );
+      })
   );
 });
 
-// ── FETCH: Network First con fallback a caché ────────────────
+// FETCH — Network First con fallback a caché
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // No interceptar requests a Supabase ni a otros servicios externos
+  // No interceptar externos ni no-GET
+  if (e.request.method !== 'GET') return;
   if (
-    url.hostname.includes('supabase.co') ||
-    url.hostname.includes('supabase.in') ||
-    url.hostname.includes('googleapis.com') ||
-    url.hostname.includes('gstatic.com') ||
-    url.hostname.includes('cdnjs.cloudflare.com') ||
-    url.hostname.includes('jsdelivr.net') ||
-    url.hostname.includes('unpkg.com') ||
-    url.hostname.includes('tailwindcss.com') ||
-    e.request.method !== 'GET'
-  ) {
-    return; // Dejar pasar sin interceptar
-  }
+    url.hostname.includes('supabase') ||
+    url.hostname.includes('googleapis') ||
+    url.hostname.includes('cdnjs') ||
+    url.hostname.includes('jsdelivr') ||
+    url.hostname.includes('unpkg') ||
+    url.hostname.includes('tailwindcss') ||
+    url.hostname.includes('gstatic') ||
+    url.hostname.includes('lucide')
+  ) return;
 
   e.respondWith(
-    // Estrategia: Network First → si falla → Caché
     fetch(e.request)
-      .then(response => {
-        // Si la respuesta es válida, guardarla en caché
-        if (response && response.status === 200 && response.type === 'basic') {
-          const clon = response.clone();
-          caches.open(CACHE_STATIC).then(cache => {
-            cache.put(e.request, clon);
-          });
+      .then(res => {
+        if (res && res.status === 200) {
+          const clone = res.clone();
+          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
         }
-        return response;
+        return res;
       })
-      .catch(() => {
-        // Sin red → usar caché
-        return caches.match(e.request).then(cached => {
+      .catch(() =>
+        caches.match(e.request).then(cached => {
           if (cached) return cached;
-          // Si no hay caché, devolver index.html para SPA
-          if (e.request.destination === 'document') {
-            return caches.match('/index.html');
-          }
-        });
-      })
+          // SPA fallback → devolver index.html
+          return caches.match('./index.html');
+        })
+      )
   );
 });
 
-// ── Escuchar mensajes del cliente ────────────────────────────
+// Mensajes
 self.addEventListener('message', e => {
-  if (e.data && e.data.tipo === 'SKIP_WAITING') {
-    self.skipWaiting();
-  }
+  if (e.data?.tipo === 'SKIP_WAITING') self.skipWaiting();
 });

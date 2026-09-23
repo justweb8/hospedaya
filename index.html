@@ -1944,45 +1944,35 @@ document.getElementById('btn-salir').addEventListener('click', async () => {
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', async () => {
     try {
-      const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      // Usar ruta relativa para compatibilidad con GitHub Pages
+      const swUrl = new URL('./sw.js', window.location.href).href;
+      const scope  = new URL('./', window.location.href).href;
+
+      const reg = await navigator.serviceWorker.register(swUrl, { scope });
       console.log('[PWA] SW registrado:', reg.scope);
 
-      // Detectar nueva versión disponible
+      // Detectar nueva versión
       reg.addEventListener('updatefound', () => {
         const nuevoSW = reg.installing;
         nuevoSW.addEventListener('statechange', () => {
           if (nuevoSW.state === 'installed' && navigator.serviceWorker.controller) {
-            // Hay actualización lista — activarla automáticamente
-            console.log('[PWA] Nueva versión disponible, actualizando...');
+            console.log('[PWA] Nueva versión, activando...');
             nuevoSW.postMessage({ tipo: 'SKIP_WAITING' });
           }
         });
       });
 
-      // Cuando el SW toma control → recargar para aplicar cambios
-      let swRefrescando = false;
+      // Recargar cuando el SW tome control
+      let refrescando = false;
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!swRefrescando) {
-          swRefrescando = true;
-          console.log('[PWA] SW actualizado, recargando...');
-          window.location.reload();
-        }
-      });
-
-      // Escuchar mensajes del SW (nueva versión activa)
-      navigator.serviceWorker.addEventListener('message', e => {
-        if (e.data && e.data.tipo === 'SW_ACTUALIZADO') {
-          console.log('[PWA] Versión activa:', e.data.version);
-        }
+        if (!refrescando) { refrescando = true; window.location.reload(); }
       });
 
       // Verificar actualizaciones cada 10 minutos
-      setInterval(() => {
-        reg.update().catch(() => {});
-      }, 10 * 60 * 1000);
+      setInterval(() => reg.update().catch(()=>{}), 10 * 60 * 1000);
 
     } catch (err) {
-      console.warn('[PWA] Error registrando SW:', err);
+      console.warn('[PWA] Error SW:', err);
     }
   });
 }
