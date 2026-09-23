@@ -1,0 +1,2174 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  
+  <title>HospedaYa — Sistema de Gestión Hotelera</title>
+
+  <!-- Tailwind CDN -->
+  <!-- ═══ PWA ═══ -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#2563EB">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="HospedaYa">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <!-- ══════════ -->
+  <!-- FIX 1: Evitar zoom al cargar y al tocar inputs -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- Google Fonts: Inter + Playfair Display -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Lucide icons -->
+  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+  <!-- QR + PDF para tickets de facturación (Fase 5) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <!-- Chart.js para gráficos de reportes y ocupación -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+  <!-- Estilos auxiliares e impresión de tickets 80mm -->
+  <link rel="stylesheet" href="style.css" />
+
+  <style>
+    /* ── Variables de diseño ─────────────────────────── */
+    :root {
+      --azul:       #2563EB;
+      --azul-hover: #1D4ED8;
+      --azul-dark:  #1E3A8A;
+      --dorado:     #C9A84C;
+      --dorado-claro:#E8C97A;
+      --gris-bg:    #F5F7FA;
+      --gris-borde: #E7EBF2;
+      --texto:      #1C2B4A;
+      --texto-sub:  #64748B;
+      --verde:      #16A34A;
+      --rojo:       #DC2626;
+      --naranja:    #EA580C;
+      /* Sidebar oscuro (navy) */
+      --nav-bg:     #0F1E3D;
+      --nav-bg2:    #0B1730;
+      --nav-item:   #94A6C4;
+      --nav-item-hover: #C7D3E8;
+      --nav-activo-bg: #2563EB;
+      --nav-activo-tx: #FFFFFF;
+      --nav-sep:    rgba(255,255,255,0.08);
+    }
+
+    * { box-sizing: border-box; }
+
+    /* FIX 2: Inputs no hacen zoom en iOS (deben ser mínimo 16px) */
+    input, select, textarea {
+      font-size: 16px !important;
+    }
+    /* Excepto en desktop donde se ven bien pequeños */
+    @media (min-width: 769px) {
+      input, select, textarea { font-size: inherit !important; }
+    }
+
+    /* FIX 3: Evitar scroll del body cuando hay modal abierto */
+    body.modal-abierto {
+      overflow: hidden !important;
+      position: fixed !important;
+      width: 100% !important;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--gris-bg);
+      color: var(--texto);
+      margin: 0;
+    }
+
+    /* ── LOGIN MÓVIL — DISEÑO APP NATIVA ────────────────── */
+    @media (max-width: 768px) {
+      #vista-login {
+        display: block;
+        min-height: 100vh;
+        position: relative;
+        background: #0F1B3D;
+      }
+
+      /* Foto de fondo */
+      #login-bg-mobile {
+        position: fixed;
+        inset: 0;
+        background: url('./banner.png') center/cover no-repeat;
+        z-index: 0;
+      }
+      #login-bg-mobile::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          rgba(5,15,45,0.40) 0%,
+          rgba(5,15,45,0.25) 35%,
+          rgba(5,15,45,0.60) 60%,
+          rgba(5,15,45,0.92) 100%
+        );
+      }
+
+      /* Ocultar elementos desktop */
+      .login-banner { display: none !important; }
+      .login-logo   { display: none !important; }
+      .login-handle { display: none; }
+
+      /* LOGO — zona superior de la foto, centrado */
+      #login-logo-mobile {
+        position: fixed;
+        top: max(3.5rem, env(safe-area-inset-top));
+        left: 0; right: 0;
+        z-index: 5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.6rem;
+        pointer-events: none;
+      }
+
+      /* Ocultar shortcuts flotantes — van dentro del sheet */
+      #login-shortcuts { display: none !important; }
+      #login-tagline-mobile { display: none !important; }
+
+      /* BOTTOM SHEET — ocupa la parte inferior */
+      .login-form-panel {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important; right: 0 !important;
+        top: auto !important;
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        border-radius: 28px 28px 0 0 !important;
+        clip-path: none !important;
+        margin-left: 0 !important;
+        box-shadow: 0 -12px 48px rgba(0,0,0,0.4) !important;
+        z-index: 10 !important;
+        background: white !important;
+        display: block !important;
+        overflow: hidden;
+      }
+
+      .login-card {
+        width: 100%;
+        padding: 0 1.5rem 2rem;
+      }
+    }
+
+    @media (min-width: 769px) {
+      #login-bg-mobile,
+      #login-logo-mobile,
+      #login-shortcuts,
+      #login-tagline-mobile { display: none !important; }
+      .login-handle { display: none !important; }
+      .login-shortcuts-sheet { display: none !important; }
+    }
+
+    /* Shortcuts dentro del sheet */
+    .login-shortcuts-sheet {
+      display: none; /* oculto en desktop */
+    }
+    @media (max-width: 768px) {
+      .login-shortcuts-sheet {
+        display: flex;
+        justify-content: space-around;
+        padding: 0.5rem 0 1rem;
+        border-bottom: 1px solid #F1F5F9;
+        margin-bottom: 1rem;
+      }
+      .login-shortcut-item {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.35rem;
+        cursor: pointer;
+      }
+      .login-shortcut-icon {
+        width: 52px;
+        height: 52px;
+        background: #F1F5F9;
+        border-radius: 14px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .login-shortcut-item span {
+        font-size: 0.65rem;
+        color: #64748B;
+        font-weight: 500;
+      }
+    }
+    #vista-login {
+      display: flex;
+      min-height: 100vh;
+      background: white;
+    }
+
+    /* Panel izquierdo — foto de lobby */
+    .login-banner {
+      flex: 1.35;
+      position: relative;
+      overflow: hidden;
+      display: none; /* oculto en móvil */
+    }
+    @media (min-width: 900px) {
+      .login-banner { display: block; }
+    }
+
+    .login-banner img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    /* Overlay: oscurece solo lo suficiente para leer el texto,
+       más fuerte abajo/izquierda, transparente arriba/derecha */
+    .login-banner-overlay {
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(180deg, rgba(15,39,102,0.15) 0%, rgba(15,39,102,0.10) 40%, rgba(15,39,102,0.72) 100%),
+        linear-gradient(90deg, rgba(15,39,102,0.55) 0%, rgba(15,39,102,0.12) 55%, rgba(15,39,102,0) 100%);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 3rem 3.5rem;
+      color: white;
+    }
+
+    .banner-tag {
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.22em;
+      color: var(--dorado-claro);
+      text-transform: uppercase;
+    }
+
+    .banner-titulo {
+      font-family: 'Playfair Display', serif;
+      font-size: clamp(2.2rem, 3.2vw, 3.1rem);
+      line-height: 1.12;
+      margin: 1rem 0 1.15rem;
+      color: white;
+      text-shadow: 0 2px 20px rgba(0,0,0,0.25);
+    }
+    .banner-titulo strong { font-weight: 700; }
+
+    .banner-sub {
+      font-size: 0.95rem;
+      color: rgba(255,255,255,0.9);
+      line-height: 1.6;
+      max-width: 340px;
+      text-shadow: 0 1px 12px rgba(0,0,0,0.35);
+    }
+
+    .banner-features {
+      display: flex;
+      flex-direction: column;
+      gap: 0.9rem;
+      margin-top: 2.5rem;
+    }
+
+    .banner-feature {
+      display: flex;
+      align-items: center;
+      gap: 0.9rem;
+    }
+
+    .banner-feature-icon {
+      width: 44px;
+      height: 44px;
+      background: rgba(255,255,255,0.12);
+      backdrop-filter: blur(6px);
+      border: 1px solid rgba(201,168,76,0.45);
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .banner-feature-icon svg {
+      width: 20px;
+      height: 20px;
+      stroke: var(--dorado-claro);
+    }
+
+    .banner-feature-text strong {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: white;
+    }
+    .banner-feature-text span {
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.72);
+    }
+
+    .banner-footer {
+      font-size: 0.68rem;
+      letter-spacing: 0.22em;
+      color: rgba(255,255,255,0.65);
+      text-transform: uppercase;
+    }
+
+    /* Panel derecho — formulario, con corte diagonal que muerde la foto */
+    .login-form-panel {
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1.5rem;
+      background: white;
+      position: relative;
+      z-index: 2;
+    }
+    @media (min-width: 900px) {
+      .login-form-panel {
+        padding: 3rem 4rem;
+        margin-left: -70px;
+        clip-path: polygon(70px 0, 100% 0, 100% 100%, 0 100%);
+        box-shadow: -30px 0 60px rgba(15,39,102,0.15);
+      }
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 380px;
+    }
+
+    .login-logo {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      margin-bottom: 2.5rem;
+    }
+
+    .logo-icon-wrap {
+      width: 68px;
+      height: 68px;
+      background: linear-gradient(135deg, var(--azul) 0%, #2563EB 100%);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1rem;
+      box-shadow: 0 8px 24px rgba(26,63,166,0.3);
+    }
+
+    .logo-icon-wrap svg {
+      width: 36px;
+      height: 36px;
+      stroke: white;
+    }
+
+    .logo-nombre {
+      font-size: 1.7rem;
+      font-weight: 700;
+      color: var(--texto);
+      letter-spacing: -0.02em;
+    }
+    .logo-nombre span { color: var(--azul); }
+
+    .logo-tagline {
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      color: var(--texto-sub);
+      text-transform: uppercase;
+      margin-top: 0.25rem;
+    }
+
+    /* Campos del formulario */
+    .campo-grupo {
+      margin-bottom: 1.15rem;
+    }
+
+    .campo-label {
+      display: block;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--texto);
+      margin-bottom: 0.45rem;
+    }
+
+    .campo-wrap {
+      position: relative;
+    }
+
+    .campo-icon {
+      position: absolute;
+      left: 0.9rem;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px;
+      height: 18px;
+      stroke: #94A3B8;
+      pointer-events: none;
+    }
+
+    .campo-input {
+      width: 100%;
+      padding: 0.75rem 1rem 0.75rem 2.6rem;
+      border: 1.5px solid var(--gris-borde);
+      border-radius: 10px;
+      font-size: 0.9rem;
+      color: var(--texto);
+      background: var(--gris-bg);
+      transition: border-color 0.2s, box-shadow 0.2s;
+      outline: none;
+    }
+
+    .campo-input:focus {
+      border-color: var(--azul);
+      background: white;
+      box-shadow: 0 0 0 3px rgba(26,63,166,0.1);
+    }
+
+    .btn-toggle-pass {
+      position: absolute;
+      right: 0.9rem;
+      top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0;
+      display: flex;
+      color: #94A3B8;
+    }
+    .btn-toggle-pass svg { width: 18px; height: 18px; }
+
+    /* Botón principal */
+    .btn-login {
+      width: 100%;
+      padding: 0.85rem;
+      background: linear-gradient(135deg, var(--azul) 0%, #2563EB 100%);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-top: 1.5rem;
+      transition: opacity 0.2s, transform 0.15s;
+      box-shadow: 0 4px 16px rgba(26,63,166,0.35);
+    }
+    .btn-login:hover { opacity: 0.92; transform: translateY(-1px); }
+    .btn-login:active { transform: translateY(0); }
+    .btn-login:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    .login-footer-text {
+      text-align: center;
+      margin-top: 1.75rem;
+      font-size: 0.65rem;
+      letter-spacing: 0.18em;
+      color: #CBD5E1;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .login-footer-text::before,
+    .login-footer-text::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--gris-borde);
+    }
+
+    #login-error {
+      background: #FEF2F2;
+      border: 1px solid #FECACA;
+      color: var(--rojo);
+      padding: 0.65rem 0.9rem;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      margin-top: 0.75rem;
+      display: none;
+    }
+
+    /* ── APP SHELL (post-login) ──────────────────────── */
+    #vista-app {
+      display: none;
+      flex-direction: column;
+      min-height: 100vh;
+    }
+
+    /* ── LAYOUT PRINCIPAL ─────────────────────────────── */
+    #app-body {
+      display: flex;
+      height: 100vh;
+      max-height: 100vh;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+
+    #area-derecha {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── SIDEBAR OSCURO ───────────────────────────────── */
+    #sidebar-wrap {
+      width: 256px;
+      flex-shrink: 0;
+      background: linear-gradient(180deg, var(--nav-bg) 0%, var(--nav-bg2) 100%);
+      display: flex;
+      flex-direction: column;
+      padding: 1.25rem 0.85rem;
+      height: 100vh;
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+
+    .sidebar-brand {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.35rem 0.5rem 1.25rem;
+      margin-bottom: 0.75rem;
+      border-bottom: 1px solid var(--nav-sep);
+    }
+    .sidebar-brand-icon {
+      width: 42px; height: 42px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--azul), #4F86F7);
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 6px 16px rgba(37,99,235,0.4);
+    }
+    .sidebar-brand-icon svg { width: 24px; height: 24px; }
+    .sidebar-brand-name {
+      font-size: 1.2rem; font-weight: 700; color: white; line-height: 1.1;
+    }
+    .sidebar-brand-name span { color: #6BA3FF; }
+    .sidebar-brand-sub {
+      font-size: 0.62rem; color: var(--nav-item); margin-top: 2px;
+    }
+
+    #sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+      flex: 1;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.7rem 0.85rem;
+      border-radius: 11px;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--nav-item);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      border: none;
+      background: none;
+      width: 100%;
+      text-align: left;
+      line-height: 1.2;
+    }
+    .nav-item svg { width: 19px; height: 19px; flex-shrink: 0; }
+    .nav-item:hover { background: rgba(255,255,255,0.06); color: var(--nav-item-hover); }
+    .nav-item.activo {
+      background: var(--nav-activo-bg);
+      color: var(--nav-activo-tx);
+      font-weight: 600;
+      box-shadow: 0 6px 16px rgba(37,99,235,0.35);
+    }
+
+    .nav-separador {
+      height: 1px;
+      background: var(--nav-sep);
+      margin: 0.6rem 0.5rem;
+    }
+
+    .sidebar-ayuda {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      margin-top: 0.75rem;
+      padding: 0.85rem;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--nav-sep);
+      border-radius: 12px;
+      color: var(--nav-item-hover);
+      text-decoration: none;
+      font-size: 0.82rem;
+      cursor: pointer;
+    }
+    .sidebar-ayuda:hover { background: rgba(255,255,255,0.09); }
+    .sidebar-ayuda svg { width: 20px; height: 20px; flex-shrink: 0; color: #6BA3FF; }
+
+    /* ── TOPBAR ───────────────────────────────────────── */
+    #topbar {
+      background: white;
+      border-bottom: 1px solid var(--gris-borde);
+      padding: 0 1.5rem;
+      height: 68px;
+      min-height: 68px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .topbar-search {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      background: var(--gris-bg);
+      border: 1px solid var(--gris-borde);
+      border-radius: 11px;
+      padding: 0.6rem 1rem;
+      width: 100%;
+      max-width: 440px;
+    }
+    .topbar-search svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .topbar-search input {
+      border: none; background: none; outline: none;
+      font-size: 0.88rem; color: var(--texto); width: 100%;
+      font-family: inherit;
+    }
+
+    .topbar-right { display: flex; align-items: center; gap: 1rem; }
+
+    .topbar-bell {
+      position: relative;
+      background: var(--gris-bg);
+      border: 1px solid var(--gris-borde);
+      border-radius: 10px;
+      width: 40px; height: 40px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; color: var(--texto-sub);
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .topbar-bell:hover { background: #EFF6FF; border-color: var(--azul); color: var(--azul); }
+    .topbar-bell svg { width: 19px; height: 19px; }
+    .bell-dot {
+      position: absolute; top: 8px; right: 9px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--rojo); border: 2px solid white;
+      display: none;
+    }
+
+    /* Panel notificaciones */
+    #panel-notificaciones {
+      font-family: inherit;
+    }
+    @keyframes fadeIn {
+      from { opacity:0; transform:translateY(-8px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+
+    .topbar-user {
+      display: flex; align-items: center; gap: 0.65rem;
+      background: var(--gris-bg);
+      border: 1px solid var(--gris-borde);
+      border-radius: 12px;
+      padding: 0.35rem 0.5rem 0.35rem 0.4rem;
+    }
+    .topbar-avatar {
+      width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0;
+      background: linear-gradient(135deg, var(--azul), #4F86F7);
+      color: white; font-weight: 700; font-size: 0.85rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .topbar-user-info { line-height: 1.2; }
+    .topbar-user-name {
+      font-size: 0.82rem; font-weight: 600; color: var(--texto);
+      max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .topbar-user-rol {
+      font-size: 0.68rem; color: var(--texto-sub); text-transform: uppercase; letter-spacing: 0.05em;
+    }
+    .btn-salir {
+      background: none; border: none; cursor: pointer;
+      color: var(--texto-sub); padding: 0.4rem; border-radius: 8px;
+      display: flex; align-items: center;
+    }
+    .btn-salir:hover { background: rgba(0,0,0,0.05); color: var(--rojo); }
+
+    /* Contenido principal */
+    #contenido {
+      flex: 1;
+      padding: 1.75rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+    }
+
+    /* ── TOAST NOTIFICATIONS ─────────────────────────── */
+    #toast-container {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.15);
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      max-width: 360px;
+      pointer-events: all;
+      animation: slideIn 0.3s ease;
+      border-left: 4px solid var(--azul);
+    }
+
+    .toast.toast-warn  { border-left-color: var(--naranja); }
+    .toast.toast-error { border-left-color: var(--rojo); }
+    .toast.toast-ok    { border-left-color: var(--verde); }
+
+    .toast-icon { width: 20px; height: 20px; flex-shrink: 0; margin-top: 1px; }
+    .toast-titulo { font-size: 0.85rem; font-weight: 600; color: var(--texto); }
+    .toast-msg    { font-size: 0.78rem; color: var(--texto-sub); margin-top: 0.15rem; }
+    .toast-close  {
+      background: none; border: none; cursor: pointer;
+      color: #94A3B8; padding: 0; margin-left: auto; flex-shrink: 0;
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ── BANNER ADVERTENCIA (≤5 días) ────────────────── */
+    #banner-vencimiento {
+      display: none;
+      background: linear-gradient(135deg, #FFF7ED, #FFEDD5);
+      border-bottom: 2px solid #FED7AA;
+      padding: 0.75rem 1.5rem;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.85rem;
+      color: #9A3412;
+      position: sticky;
+      top: 60px;
+      z-index: 40;
+    }
+    #banner-vencimiento svg { width: 18px; height: 18px; flex-shrink: 0; }
+    #banner-vencimiento .btn-wa {
+      margin-left: auto;
+      background: #16A34A;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 0.4rem 1rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    /* ── MODAL PAYWALL (vencido) ──────────────────────── */
+    #modal-paywall {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(15,39,102,0.85);
+      backdrop-filter: blur(6px);
+      z-index: 9000;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+    }
+    #modal-paywall.visible { display: flex; }
+
+    .paywall-card {
+      background: white;
+      border-radius: 20px;
+      padding: 2rem 1.75rem;
+      max-width: 440px;
+      width: 100%;
+      text-align: left;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.3);
+      animation: paywall-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both;
+    }
+
+    @keyframes paywall-in {
+      from { opacity:0; transform:scale(0.9) translateY(20px); }
+      to   { opacity:1; transform:scale(1)   translateY(0); }
+    }
+
+    .paywall-icono {
+      width: 70px;
+      height: 70px;
+      background: linear-gradient(135deg, #FEF2F2, #FECACA);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.25rem;
+    }
+    .paywall-icono svg { width: 32px; height: 32px; stroke: var(--rojo); }
+
+    .paywall-titulo {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--texto);
+      margin-bottom: 0.5rem;
+    }
+
+    .paywall-msg {
+      font-size: 0.88rem;
+      color: var(--texto-sub);
+      line-height: 1.6;
+      margin-bottom: 1.5rem;
+    }
+
+    .paywall-datos {
+      background: var(--gris-bg);
+      border: 1px solid var(--gris-borde);
+      border-radius: 12px;
+      padding: 1.25rem;
+      text-align: left;
+      margin-bottom: 1.5rem;
+    }
+
+    .paywall-datos-titulo {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--texto-sub);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.85rem;
+    }
+
+    .paywall-dato {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      font-size: 0.83rem;
+      color: var(--texto);
+      margin-bottom: 0.5rem;
+    }
+    .paywall-dato svg { width: 15px; height: 15px; stroke: var(--dorado); flex-shrink: 0; }
+
+    .btn-wa-paywall {
+      width: 100%;
+      background: #16A34A;
+      color: white;
+      border: none;
+      border-radius: 12px;
+      padding: 0.9rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+    .btn-wa-paywall:hover { opacity: 0.88; }
+
+    .paywall-cerrar-btn {
+      margin-top: 0.85rem;
+      font-size: 0.78rem;
+      color: var(--texto-sub);
+      background: none;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* ── CARGANDO ─────────────────────────────────────── */
+    #pantalla-carga {
+      position: fixed;
+      inset: 0;
+      background: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      gap: 1rem;
+    }
+
+    .spinner {
+      width: 42px;
+      height: 42px;
+      border: 3px solid var(--gris-borde);
+      border-top-color: var(--azul);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── UTILIDADES ───────────────────────────────────── */
+    .seccion-titulo {
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--texto);
+      margin-bottom: 0.25rem;
+    }
+    .seccion-sub {
+      font-size: 0.85rem;
+      color: var(--texto-sub);
+      margin-bottom: 1.5rem;
+    }
+
+    .card {
+      background: white;
+      border: 1px solid var(--gris-borde);
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 1px 3px rgba(15,30,61,0.04), 0 1px 2px rgba(15,30,61,0.03);
+    }
+    #contenido { background: var(--gris-bg); }
+
+    .badge-plan {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      padding: 0.2rem 0.7rem;
+      border-radius: 999px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .badge-plan.basico { background: #EFF6FF; color: #1D4ED8; }
+    .badge-plan.pro    { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+
+    /* ══════════════════════════════════════════════════════
+       RESPONSIVE COMPLETO
+       PC ≥1100px | Laptop 900-1100 | Tablet 600-900 | Móvil <600
+       ══════════════════════════════════════════════════════ */
+
+    /* ── Variables de layout ────────────────────────────── */
+    :root {
+      --sidebar-w: 210px;
+      --topbar-h:  60px;
+      --bottombar-h: 70px;
+    }
+
+    /* ── LAPTOP (≤1100px) ───────────────────────────────── */
+    @media (max-width: 1100px) {
+      .login-banner-overlay { padding: 2rem; }
+      .banner-features { margin-top: 1.5rem; gap: 0.65rem; }
+      .login-form-panel { max-width: 420px; padding: 2rem; }
+      #sidebar-wrap { width: 195px; }
+      #contenido { padding: 1.25rem; }
+      .topbar-search { max-width: 260px; }
+
+      /* Grids de 2 columnas → mantener pero con gap menor */
+      .dash-fila { gap: 0.85rem; }
+    }
+
+    /* ── TABLET HORIZONTAL (≤900px) ─────────────────────── */
+    @media (max-width: 900px) {
+      #vista-login { flex-direction: column; }
+      .login-banner { display: block; flex: none; height: 200px; width: 100%; }
+      .login-banner-overlay { padding: 1.25rem; justify-content: flex-end; }
+      .banner-titulo { font-size: 1.55rem; }
+      .banner-sub, .banner-features, .banner-footer { display: none; }
+      .login-form-panel { max-width: 100%; margin-left: 0; clip-path: none; box-shadow: none; padding: 1.75rem 1.5rem 2rem; flex: 1; }
+      .login-card { max-width: 420px; }
+
+      /* Grids → una columna */
+      .dash-fila  { grid-template-columns: 1fr !important; }
+      .rep-grid   { grid-template-columns: 1fr !important; }
+      .susc-grid  { grid-template-columns: 1fr !important; }
+    }
+
+    /* ── TABLET VERTICAL / MÓVIL GRANDE (≤768px) ───────── */
+    @media (max-width: 768px) {
+      #app-body { flex-direction: column; }
+      #area-derecha { order: 1; }
+
+      /* ── Barra inferior moderna (estilo app nativa) ── */
+      #sidebar-wrap {
+        order: 2;
+        width: 100% !important;
+        height: 64px !important;
+        position: fixed !important;
+        bottom: 0 !important; left: 0 !important; top: auto !important;
+        z-index: 200;
+        padding: 0 !important;
+        flex-direction: row !important;
+        overflow: hidden !important;
+        background: white !important;
+        border-top: 1px solid #E2E8F0 !important;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.08) !important;
+      }
+      .sidebar-brand, .sidebar-ayuda { display: none !important; }
+
+      #sidebar {
+        flex-direction: row !important;
+        align-items: stretch !important;
+        justify-content: space-around !important;
+        width: 100% !important;
+        gap: 0 !important;
+        padding: 0 !important;
+        height: 100% !important;
+      }
+
+      .nav-item {
+        flex: 1 !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0.2rem !important;
+        padding: 0.5rem 0.25rem 0.4rem !important;
+        font-size: 0.6rem !important;
+        font-weight: 500 !important;
+        color: #94A3B8 !important;
+        background: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        cursor: pointer !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        position: relative !important;
+        transition: color 0.15s !important;
+      }
+      .nav-item svg { width: 22px !important; height: 22px !important; flex-shrink: 0 !important; }
+
+      .nav-item.activo {
+        color: #2563EB !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        font-weight: 700 !important;
+      }
+      .nav-item.activo svg { transform: scale(1.1); }
+      .nav-item.activo::before {
+        content: '';
+        position: absolute;
+        top: 0; left: 50%;
+        transform: translateX(-50%);
+        width: 28px; height: 3px;
+        background: #2563EB;
+        border-radius: 0 0 3px 3px;
+      }
+      .nav-item:active { color: #2563EB !important; }
+      .nav-separador { display: none !important; }
+
+      #contenido { padding-bottom: calc(64px + 0.5rem) !important; }
+
+      /* Dashboard KPIs — siempre 2 columnas en móvil */
+      #dash-kpis-mobile { grid-template-columns: 1fr 1fr !important; }
+
+      /* Restaurante métricas → 2 columnas en móvil */
+      .rest-metrics-grid { grid-template-columns: 1fr 1fr !important; }
+
+      /* Cocina métricas → 2 columnas en móvil */
+      .cocina-metrics-grid { grid-template-columns: 1fr 1fr !important; }
+
+      /* Calendario layout → columna única en móvil */
+      .cal-layout { grid-template-columns: 1fr !important; }
+
+      /* Evitar desbordamiento horizontal */
+      #contenido {
+        padding: 0.85rem !important;
+        padding-bottom: calc(64px + 0.85rem) !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+        width: 100% !important;
+      }
+
+      /* Todos los grids: respetar el ancho del contenedor */
+      #contenido > * { min-width: 0; }
+      #contenido [style*="display:grid"],
+      #contenido [style*="display: grid"] {
+        min-width: 0;
+        width: 100%;
+        box-sizing: border-box;
+      }
+
+      /* Cards dentro de grids no desbordan */
+      #dash-kpis-mobile .card,
+      .rack-stats-grid .card {
+        min-width: 0;
+        overflow: hidden;
+      }
+
+      #topbar { padding: 0 0.75rem; gap: 0.4rem; }
+      .topbar-search { flex: 1; max-width: none; }
+      .topbar-search kbd { display: none; }
+      .topbar-user-info { display: none; }
+
+      #panel-busqueda { width: calc(100vw - 1.5rem) !important; left: 0 !important; }
+      #panel-notificaciones { width: calc(100vw - 1rem) !important; right: 0.5rem !important; }
+
+      .dash-fila  { grid-template-columns: 1fr !important; }
+      .rep-grid   { grid-template-columns: 1fr !important; }
+      .susc-grid  { grid-template-columns: 1fr !important; }
+      .rack-stats-grid { grid-template-columns: 1fr 1fr !important; }
+
+      #toast-container { left: 0.75rem; right: 0.75rem; top: 0.75rem; }
+      .toast { max-width: 100%; }
+      .paywall-card { max-width: 100%; margin: 0.75rem; padding: 1.5rem 1.25rem; }
+      #banner-vencimiento { flex-wrap: wrap; top: 60px; font-size: 0.78rem; }
+      #banner-vencimiento .btn-wa { width: 100%; justify-content: center; margin: 0.4rem 0 0; }
+      .modal-box { width: 96vw !important; max-width: 96vw !important; max-height: 88vh; overflow-y: auto; }
+    }
+    /* ── MÓVIL PEQUEÑO (≤600px) ─────────────────────────── */
+    @media (max-width: 600px) {
+      .login-banner { height: 155px; }
+      .banner-titulo { font-size: 1.3rem; }
+      .logo-icon-wrap { width: 54px; height: 54px; }
+      .logo-icon-wrap svg { width: 28px; height: 28px; }
+      .logo-nombre { font-size: 1.45rem; }
+
+      #contenido { padding: 0.75rem; }
+      .card { padding: 0.9rem; border-radius: 12px; }
+      .seccion-titulo { font-size: 1.05rem; }
+
+      /* Topbar mínimo */
+      #topbar { padding: 0 0.65rem; gap: 0.35rem; height: 56px; }
+      .topbar-bell { width: 36px; height: 36px; }
+
+      /* Tablas → scroll horizontal */
+      .tabla-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { font-size: 0.78rem; }
+      th, td { padding: 0.55rem 0.65rem !important; }
+    }
+
+    /* ── CLASES UTILITARIAS RESPONSIVE ─────────────────── */
+
+    /* Grid que se apila en móvil */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 0.5rem; }
+
+    @media (max-width: 600px) {
+      .grid-2 { grid-template-columns: 1fr; }
+      .grid-3 { grid-template-columns: 1fr 1fr; }
+      .grid-4 { grid-template-columns: 1fr 1fr; }
+      .grid-kpi { grid-template-columns: 1fr 1fr !important; }
+      /* Ocultar columnas secundarias en tablas */
+      .col-hide-mobile { display: none !important; }
+      /* Inputs y botones: ancho completo */
+      .btn-full-mobile { width: 100% !important; }
+      /* Texto más pequeño */
+      h1 { font-size: 1.25rem !important; }
+    }
+
+    @media (max-width: 768px) {
+      .grid-sidebar { grid-template-columns: 1fr !important; }
+      /* Ocultar en tablet */
+      .col-hide-tablet { display: none !important; }
+    }
+
+    /* Scroll horizontal seguro para tablas */
+    .tabla-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 12px; }
+
+    /* Respeta usuarios que prefieren menos movimiento */
+    @media (prefers-reduced-motion: reduce) {
+      * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ╔══════════════════════════════════════════════════╗
+     ║  PANTALLA DE CARGA                               ║
+     ╚══════════════════════════════════════════════════╝ -->
+<div id="pantalla-carga">
+  <div class="spinner"></div>
+  <p style="font-size:0.85rem;color:var(--texto-sub)">Cargando HospedaYa…</p>
+</div>
+
+<!-- ╔══════════════════════════════════════════════════╗
+     ║  VISTA LOGIN                                     ║
+     ╚══════════════════════════════════════════════════╝ -->
+<div id="vista-login">
+
+  <!-- FONDO FOTO (solo móvil) -->
+  <div id="login-bg-mobile"></div>
+
+  <!-- LOGO FLOTANTE (solo móvil) -->
+  <div id="login-logo-mobile">
+    <div style="width:72px;height:72px;background:linear-gradient(135deg,#2563EB,#1D4ED8);border-radius:20px;display:flex;align-items:center;justify-content:center;box-shadow:0 8px 32px rgba(37,99,235,0.5);margin-bottom:0.85rem;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:36px;height:36px;">
+        <path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>
+      </svg>
+    </div>
+    <div style="font-size:1.8rem;font-weight:800;color:white;letter-spacing:-0.02em;text-shadow:0 2px 12px rgba(0,0,0,0.4);">Hospeda<span style="color:#60A5FA;">Ya</span></div>
+    <div style="font-size:0.62rem;letter-spacing:0.25em;color:rgba(255,255,255,0.65);text-transform:uppercase;margin-top:0.3rem;text-shadow:0 1px 8px rgba(0,0,0,0.4);">Sistema de Gestión Hotelera & POS</div>
+  </div>
+
+  <!-- ACCESOS RÁPIDOS (solo móvil) -->
+  <div id="login-shortcuts">
+    <div style="display:flex;flex-direction:column;align-items:center;gap:0.45rem;">
+      <div style="width:56px;height:56px;background:rgba(255,255,255,0.15);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.25);border-radius:16px;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:24px;height:24px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </div>
+      <span style="font-size:0.68rem;color:rgba(255,255,255,0.9);font-weight:500;">Reservas</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:0.45rem;">
+      <div style="width:56px;height:56px;background:rgba(255,255,255,0.15);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.25);border-radius:16px;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:24px;height:24px;"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>
+      </div>
+      <span style="font-size:0.68rem;color:rgba(255,255,255,0.9);font-weight:500;">Habitaciones</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:0.45rem;">
+      <div style="width:56px;height:56px;background:rgba(255,255,255,0.15);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.25);border-radius:16px;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:24px;height:24px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      </div>
+      <span style="font-size:0.68rem;color:rgba(255,255,255,0.9);font-weight:500;">Huéspedes</span>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:0.45rem;">
+      <div style="width:56px;height:56px;background:rgba(255,255,255,0.15);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,0.25);border-radius:16px;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:24px;height:24px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+      </div>
+      <span style="font-size:0.68rem;color:rgba(255,255,255,0.9);font-weight:500;">Reportes</span>
+    </div>
+  </div>
+
+  <!-- TAGLINE (solo móvil) -->
+  <div id="login-tagline-mobile">Confianza &nbsp;·&nbsp; Control &nbsp;·&nbsp; Crecimiento</div>
+
+  <!-- Izquierda: banner foto lobby -->
+  <div class="login-banner">
+    <img src="banner.png" alt="Lobby del hotel" id="img-banner" />
+    <div class="login-banner-overlay">
+      <div>
+        <div class="banner-tag">Hoteles más simples</div>
+        <h1 class="banner-titulo">Gestiona hoy,<br><strong>mejores<br>experiencias<br>mañana</strong></h1>
+        <p class="banner-sub">Reservas, huéspedes, habitaciones, ventas y mucho más, en un solo lugar.</p>
+
+        <div class="banner-features">
+          <div class="banner-feature">
+            <div class="banner-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+              </svg>
+            </div>
+            <div class="banner-feature-text">
+              <strong>Reservas</strong>
+              <span>Control total</span>
+            </div>
+          </div>
+          <div class="banner-feature">
+            <div class="banner-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>
+              </svg>
+            </div>
+            <div class="banner-feature-text">
+              <strong>Habitaciones</strong>
+              <span>Disponibilidad en tiempo real</span>
+            </div>
+          </div>
+          <div class="banner-feature">
+            <div class="banner-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+            </div>
+            <div class="banner-feature-text">
+              <strong>Huéspedes</strong>
+              <span>Experiencias inolvidables</span>
+            </div>
+          </div>
+          <div class="banner-feature">
+            <div class="banner-feature-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+              </svg>
+            </div>
+            <div class="banner-feature-text">
+              <strong>Reportes</strong>
+              <span>Decisiones más inteligentes</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="banner-footer">Confianza &nbsp;·&nbsp; Control &nbsp;·&nbsp; Crecimiento</div>
+    </div>
+  </div>
+
+  <!-- Derecha: formulario login -->
+  <div class="login-form-panel">
+    <div class="login-card">
+      <!-- Handle (solo móvil) -->
+      <div style="text-align:center;padding:0.85rem 0 0.5rem;">
+        <div style="width:40px;height:4px;background:#CBD5E1;border-radius:999px;display:inline-block;"></div>
+      </div>
+
+      <!-- Shortcuts (solo móvil, dentro del sheet) -->
+      <div class="login-shortcuts-sheet">
+        <div class="login-shortcut-item">
+          <div class="login-shortcut-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          </div>
+          <span>Reservas</span>
+        </div>
+        <div class="login-shortcut-item">
+          <div class="login-shortcut-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/></svg>
+          </div>
+          <span>Habitaciones</span>
+        </div>
+        <div class="login-shortcut-item">
+          <div class="login-shortcut-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <span>Huéspedes</span>
+        </div>
+        <div class="login-shortcut-item">
+          <div class="login-shortcut-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          </div>
+          <span>Reportes</span>
+        </div>
+      </div>
+
+      <!-- Logo -->
+      <div class="login-logo">
+        <div class="logo-icon-wrap">
+          <!-- Ícono de cama / hotel -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 4v16"/>
+            <path d="M2 8h18a2 2 0 0 1 2 2v10"/>
+            <path d="M2 17h20"/>
+            <path d="M6 8v9"/>
+          </svg>
+        </div>
+        <div class="logo-nombre">Hospeda<span>Ya</span></div>
+        <div class="logo-tagline">Sistema de Gestión Hotelera &amp; POS</div>
+      </div>
+
+      <!-- Formulario -->
+      <div class="campo-grupo">
+        <label class="campo-label" for="inp-email">Correo Electrónico</label>
+        <div class="campo-wrap">
+          <svg class="campo-icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
+          </svg>
+          <input class="campo-input" id="inp-email" type="email"
+                 placeholder="usuario@hotel.com" autocomplete="email" />
+        </div>
+      </div>
+
+      <div class="campo-grupo">
+        <label class="campo-label" for="inp-pass">Contraseña</label>
+        <div class="campo-wrap">
+          <svg class="campo-icon" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          </svg>
+          <input class="campo-input" id="inp-pass" type="password"
+                 placeholder="Ingresa tu contraseña" autocomplete="current-password" />
+          <button class="btn-toggle-pass" id="btn-toggle-pass" type="button">
+            <svg id="ico-pass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/>
+              <line x1="1" y1="1" x2="23" y2="23"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="login-error"></div>
+
+      <button class="btn-login" id="btn-login">
+        <span id="btn-login-texto">Ingresar al Sistema</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5"
+             stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      <div class="login-footer-text">Hotelería más simple</div>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════════════════╗
+     ║  VISTA APP (post-login)                          ║
+     ╚══════════════════════════════════════════════════╝ -->
+<div id="vista-app">
+
+  <!-- Cuerpo principal: sidebar + área derecha -->
+  <div id="app-body">
+
+    <!-- Sidebar oscuro -->
+    <aside id="sidebar-wrap">
+      <div class="sidebar-brand">
+        <div class="sidebar-brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>
+          </svg>
+        </div>
+        <div>
+          <div class="sidebar-brand-name">Hospeda<span>Ya</span></div>
+          <div class="sidebar-brand-sub">Sistema de Gestión Hotelera</div>
+        </div>
+      </div>
+      <nav id="sidebar"></nav>
+      <a class="sidebar-ayuda" href="#" onclick="return false;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+        </svg>
+        <div>
+          <div style="font-weight:600;">¿Necesitas ayuda?</div>
+          <div style="font-size:0.72rem; opacity:0.7;">Contáctanos</div>
+        </div>
+      </a>
+    </aside>
+
+    <!-- Área derecha: topbar + banner + contenido -->
+    <div id="area-derecha">
+
+      <!-- Topbar -->
+      <div id="topbar">
+        <div class="topbar-search" style="position:relative;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" placeholder="Buscar huésped, reserva o habitación…" id="topbar-buscar"
+            autocomplete="off"
+            oninput="busquedaGlobalInput(this.value)"
+            onkeydown="busquedaGlobalKeydown(event)"
+            onfocus="if(this.value.trim().length>=2) mostrarPanelBusqueda()">
+          <kbd style="position:absolute;right:0.75rem;top:50%;transform:translateY(-50%);background:var(--gris-borde);border-radius:5px;padding:0.15rem 0.4rem;font-size:0.65rem;color:var(--texto-sub);font-family:monospace;pointer-events:none;">Ctrl K</kbd>
+
+          <!-- Panel de resultados -->
+          <div id="panel-busqueda" style="display:none;position:absolute;top:calc(100% + 8px);left:0;width:480px;max-width:90vw;background:white;border:1px solid var(--gris-borde);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,0.15);z-index:600;overflow:hidden;">
+            <div id="busqueda-resultados" style="max-height:420px;overflow-y:auto;"></div>
+          </div>
+        </div>
+        <div class="topbar-right">
+          <button class="topbar-bell" id="btn-campana" title="Notificaciones" onclick="toggleNotificaciones()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            <span class="bell-dot" id="bell-dot" style="display:none;"></span>
+            <span id="bell-count" style="display:none;position:absolute;top:4px;right:4px;background:var(--rojo);color:white;font-size:0.6rem;font-weight:700;width:16px;height:16px;border-radius:50%;display:none;align-items:center;justify-content:center;border:1.5px solid white;"></span>
+          </button>
+
+          <!-- Panel de notificaciones -->
+          <div id="panel-notificaciones" style="display:none;position:absolute;top:60px;right:1rem;width:360px;max-height:480px;background:white;border:1px solid var(--gris-borde);border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,0.15);z-index:500;overflow:hidden;animation:fadeIn 0.15s ease;">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:1rem 1.1rem;border-bottom:1px solid var(--gris-borde);">
+              <div style="font-weight:700;font-size:0.95rem;">Notificaciones</div>
+              <div style="display:flex;gap:0.5rem;align-items:center;">
+                <button onclick="marcarTodasLeidas()" style="font-size:0.75rem;color:var(--azul);font-weight:600;background:none;border:none;cursor:pointer;">Marcar leídas</button>
+                <button onclick="cerrarNotificaciones()" style="background:none;border:none;cursor:pointer;color:var(--texto-sub);font-size:1.1rem;padding:0;line-height:1;">✕</button>
+              </div>
+            </div>
+            <div id="lista-notificaciones" style="overflow-y:auto;max-height:400px;">
+              <div style="padding:2rem;text-align:center;color:var(--texto-sub);font-size:0.85rem;">
+                <div style="font-size:2rem;margin-bottom:0.5rem;">🔔</div>
+                Cargando notificaciones…
+              </div>
+            </div>
+          </div>
+          <div class="topbar-user">
+            <div class="topbar-avatar" id="topbar-avatar">LN</div>
+            <div class="topbar-user-info">
+              <div class="topbar-user-name" id="topbar-hotel-nombre">—</div>
+              <div class="topbar-user-rol" id="topbar-rol">—</div>
+            </div>
+            <button class="btn-salir" id="btn-salir" title="Cerrar sesión">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Banner advertencia vencimiento (≤5 días) -->
+      <div id="banner-vencimiento">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+          <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+        </svg>
+        <span id="banner-venc-texto">Tu suscripción vence pronto.</span>
+        <a id="btn-wa-renovar" class="btn-wa" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="white" style="width:15px;height:15px">
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+            <path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/>
+          </svg>
+          Renovar ahora
+        </a>
+      </div>
+
+      <!-- Contenido dinámico -->
+      <main id="contenido" style="min-height:0;">
+        <div style="display:flex;align-items:center;justify-content:center;height:200px;color:var(--texto-sub);font-size:0.9rem;">
+          Cargando módulo…
+        </div>
+      </main>
+    </div>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════════════════╗
+     ║  MODAL PAYWALL (vencido)                         ║
+     ╚══════════════════════════════════════════════════╝ -->
+<div id="modal-paywall">
+  <div class="paywall-card">
+
+    <!-- Icono y estado -->
+    <div style="text-align:center;margin-bottom:1.5rem;">
+      <div style="width:72px;height:72px;border-radius:50%;background:#FEF2F2;border:2px solid #FECACA;display:flex;align-items:center;justify-content:center;margin:0 auto 1rem;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:34px;height:34px;">
+          <rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+        </svg>
+      </div>
+      <div id="paywall-badge" style="display:inline-block;font-size:0.72rem;font-weight:700;padding:0.25rem 0.85rem;border-radius:999px;background:#FEF2F2;color:#DC2626;border:1px solid #FECACA;margin-bottom:0.75rem;">
+        SUSCRIPCIÓN VENCIDA
+      </div>
+      <h2 style="font-size:1.4rem;font-weight:800;color:#111827;margin:0 0 0.5rem;">
+        Acceso bloqueado
+      </h2>
+      <p style="font-size:0.88rem;color:#6B7280;margin:0;line-height:1.5;">
+        Tu suscripción ha expirado. Renueva para seguir operando<br>sin perder ningún dato de tu hotel.
+      </p>
+    </div>
+
+    <!-- Hotel info -->
+    <div style="background:#F9FAFB;border:1px solid #E5E7EB;border-radius:12px;padding:0.9rem 1rem;margin-bottom:1.25rem;display:flex;align-items:center;gap:0.75rem;">
+      <div style="width:38px;height:38px;border-radius:9px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-weight:800;font-size:1rem;color:#2563EB;" id="paywall-iniciales">HY</div>
+      <div>
+        <div style="font-weight:700;font-size:0.92rem;" id="paywall-hotel-nombre">Tu hotel</div>
+        <div style="font-size:0.75rem;color:#6B7280;" id="paywall-hotel-plan">Plan básico</div>
+      </div>
+      <div style="margin-left:auto;text-align:right;">
+        <div style="font-size:0.68rem;color:#6B7280;">Venció el</div>
+        <div style="font-size:0.82rem;font-weight:700;color:#DC2626;" id="paywall-fecha-vence">—</div>
+      </div>
+    </div>
+
+    <!-- Planes disponibles -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:1.25rem;">
+      <div style="border:1.5px solid #E5E7EB;border-radius:12px;padding:0.9rem;text-align:center;">
+        <div style="font-size:1.25rem;margin-bottom:0.35rem;">📦</div>
+        <div style="font-weight:700;font-size:0.88rem;">Plan Básico</div>
+        <div style="font-size:0.72rem;color:#6B7280;margin-top:0.2rem;">PMS hotelero completo</div>
+        <div style="font-size:0.95rem;font-weight:700;color:#2563EB;margin-top:0.5rem;" id="paywall-precio-basico">S/ 99/mes</div>
+      </div>
+      <div style="border:2px solid #7C3AED;border-radius:12px;padding:0.9rem;text-align:center;background:#FAFAF9;position:relative;">
+        <div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);background:#7C3AED;color:white;font-size:0.65rem;font-weight:700;padding:0.15rem 0.6rem;border-radius:999px;">RECOMENDADO</div>
+        <div style="font-size:1.25rem;margin-bottom:0.35rem;">🚀</div>
+        <div style="font-weight:700;font-size:0.88rem;">Plan PRO</div>
+        <div style="font-size:0.72rem;color:#6B7280;margin-top:0.2rem;">+ Restaurante y cocina</div>
+        <div style="font-size:0.95rem;font-weight:700;color:#7C3AED;margin-top:0.5rem;" id="paywall-precio-pro">S/ 149/mes</div>
+      </div>
+    </div>
+
+    <!-- Datos de pago -->
+    <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:10px;padding:0.85rem 1rem;margin-bottom:1.1rem;">
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;color:#92400E;margin-bottom:0.6rem;">💳 Formas de pago</div>
+      <div style="display:flex;flex-direction:column;gap:0.4rem;font-size:0.83rem;color:#78350F;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span>📱</span><span id="paywall-dato-yape">Yape / Plin</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <span>🏦</span><span id="paywall-dato-transfer">Transferencia bancaria</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Botón WhatsApp -->
+    <a id="btn-wa-paywall" class="btn-wa-paywall" target="_blank" rel="noopener" style="display:flex;align-items:center;justify-content:center;gap:0.6rem;background:linear-gradient(135deg,#16A34A,#15803D);color:white;text-decoration:none;padding:0.9rem 1rem;border-radius:12px;font-weight:700;font-size:0.95rem;margin-bottom:0.6rem;box-shadow:0 4px 14px rgba(22,163,74,0.35);">
+      <svg viewBox="0 0 24 24" fill="white" style="width:20px;height:20px;flex-shrink:0;">
+        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+        <path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/>
+      </svg>
+      Renovar ahora por WhatsApp
+    </a>
+
+    <!-- Botón acceso lectura -->
+    <button class="paywall-cerrar-btn" id="paywall-cerrar" style="width:100%;padding:0.6rem;background:none;border:1px solid #E5E7EB;border-radius:10px;font-size:0.82rem;color:#6B7280;cursor:pointer;">
+      Solo ver mis datos (acceso de lectura limitado)
+    </button>
+
+    <p style="text-align:center;font-size:0.7rem;color:#9CA3AF;margin-top:0.75rem;margin-bottom:0;">
+      🔒 Tus datos están seguros. Nada se borra al vencer la suscripción.
+    </p>
+  </div>
+</div>
+
+<!-- ╔══════════════════════════════════════════════════╗
+     ║  CONTENEDOR DE TOASTS                            ║
+     ╚══════════════════════════════════════════════════╝ -->
+<div id="toast-container"></div>
+
+
+<!-- ═══════════════════════════════════════════════════
+     SCRIPTS
+     ═══════════════════════════════════════════════════ -->
+<script src="config.js"></script>
+<script src="supabaseClient.js"></script>
+<script src="app.js"></script>
+<script src="facturacionSunat.js"></script>
+<script>
+
+// ── inicializarApiDoc — definida aquí para garantizar orden de carga ─
+async function inicializarApiDoc() {
+  if (!SESSION?.hotel && !SESSION?.perfil?.es_superadmin) return;
+  try {
+    const { data } = await db.rpc('fn_consultar_documento', { p_tipo: 'ping', p_numero: '' });
+    API_DOC.activa = !data?.error?.includes('no configurado');
+  } catch(_) {
+    API_DOC.activa = true;
+  }
+}
+
+// ── Toast helper ─────────────────────────────────────────────
+function toast(titulo, msg = '', tipo = 'info', duracion = 5000) {
+  const iconos = {
+    info:  '<path d="M12 2a10 10 0 1 0 0 20A10 10 0 0 0 12 2zm0 5v4m0 4h.01"/>',
+    warn:  '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    error: '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',
+    ok:    '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+  };
+  const colores = { info: '#1A3FA6', warn: '#EA580C', error: '#DC2626', ok: '#16A34A' };
+
+  const el = document.createElement('div');
+  el.className = `toast toast-${tipo === 'ok' ? 'ok' : tipo === 'warn' ? 'warn' : tipo === 'error' ? 'error' : ''}`;
+  el.innerHTML = `
+    <svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="${colores[tipo]}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconos[tipo]}</svg>
+    <div>
+      <div class="toast-titulo">${titulo}</div>
+      ${msg ? `<div class="toast-msg">${msg}</div>` : ''}
+    </div>
+    <button class="toast-close" onclick="this.parentElement.remove()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+  `;
+  document.getElementById('toast-container').appendChild(el);
+  if (duracion > 0) setTimeout(() => el.remove(), duracion);
+}
+
+// ── Mostrar/ocultar vistas ───────────────────────────────────
+function mostrarLogin() {
+  document.getElementById('pantalla-carga').style.display = 'none';
+  document.getElementById('vista-login').style.display = 'flex';
+  document.getElementById('vista-app').style.display = 'none';
+}
+
+function mostrarApp() {
+  document.getElementById('pantalla-carga').style.display = 'none';
+  document.getElementById('vista-login').style.display = 'none';
+  document.getElementById('vista-app').style.display = 'flex';
+}
+
+// ── Paywall ──────────────────────────────────────────────────
+function mostrarPaywall() {
+  // Datos dinámicos del hotel
+  const hotel = SESSION.hotel || {};
+  const nombre = hotel.nombre_comercial || 'Tu hotel';
+  const plan   = hotel.plan || 'basico';
+  const vence  = hotel.fecha_vencimiento
+    ? new Date(hotel.fecha_vencimiento).toLocaleDateString('es-PE',{day:'numeric',month:'long',year:'numeric'})
+    : '—';
+  const estado = hotel.estado === 'suspendido' ? 'SUSPENDIDO' : 'SUSCRIPCIÓN VENCIDA';
+  const iniciales = nombre.trim().split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase()||'HY';
+
+  // Rellenar
+  const pw = document.getElementById('modal-paywall');
+  pw.querySelector('#paywall-badge').textContent          = estado;
+  pw.querySelector('#paywall-iniciales').textContent      = iniciales;
+  pw.querySelector('#paywall-hotel-nombre').textContent   = nombre;
+  pw.querySelector('#paywall-hotel-plan').textContent     = `Plan ${plan.toUpperCase()} · ${estado.toLowerCase()}`;
+  pw.querySelector('#paywall-fecha-vence').textContent    = vence;
+  pw.querySelector('#paywall-dato-yape').textContent      = 'Yape / Plin: ' + DATOS_PAGO.yape;
+  pw.querySelector('#paywall-dato-transfer').textContent  = 'Transferencia: ' + DATOS_PAGO.transferencia;
+
+  // Badge color según estado
+  if (hotel.estado === 'suspendido') {
+    pw.querySelector('#paywall-badge').style.background = '#FFF7ED';
+    pw.querySelector('#paywall-badge').style.color      = '#EA580C';
+    pw.querySelector('#paywall-badge').style.borderColor= '#FED7AA';
+  }
+
+  // Mensaje WA con nombre del hotel
+  const msgWa = encodeURIComponent(
+    `Hola! Soy el administrador de *${nombre}*. Quiero renovar mi suscripción a HospedaYa. ¿Me pueden ayudar?`
+  );
+  const waNum = WA_SUPERADMIN ? WA_SUPERADMIN.replace(/\D/g,'') : '';
+  document.getElementById('btn-wa-paywall').href = `https://wa.me/${waNum}?text=${msgWa}`;
+
+  document.getElementById('modal-paywall').classList.add('visible');
+}
+
+document.getElementById('paywall-cerrar').addEventListener('click', () => {
+  document.getElementById('modal-paywall').classList.remove('visible');
+});
+
+// ── Banner advertencia ───────────────────────────────────────
+function mostrarBannerVencimiento(diasRestantes) {
+  const banner = document.getElementById('banner-vencimiento');
+  const texto  = document.getElementById('banner-venc-texto');
+  const btnWa  = document.getElementById('btn-wa-renovar');
+
+  if (diasRestantes <= 0) { banner.style.display = 'none'; return; }
+
+  const urgente = diasRestantes <= 3;
+  texto.textContent = `⚠️ Tu suscripción vence en ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}. Renueva para no perder el acceso.`;
+
+  if (urgente) {
+    banner.style.background = '#FEF2F2';
+    banner.style.borderBottom = '2px solid #FECACA';
+    banner.style.color = '#DC2626';
+  }
+
+  // WhatsApp con nombre del hotel
+  const hotel = SESSION.hotel?.nombre_comercial || 'mi hotel';
+  const msgWa = encodeURIComponent(`Hola! Soy el admin de *${hotel}*. Mi suscripción vence en ${diasRestantes} día(s). Quiero renovar.`);
+  const waNum = WA_SUPERADMIN ? WA_SUPERADMIN.replace(/\D/g,'') : '';
+  btnWa.href = `https://wa.me/${waNum}?text=${msgWa}`;
+  banner.style.display = 'flex';
+}
+
+// ── Sidebar dinámico según rol ───────────────────────────────
+function buildSidebar(rol, esSuperadmin) {
+  const sidebar = document.getElementById('sidebar');
+  sidebar.innerHTML = '';
+
+  const items = [];
+  const plan = SESSION.hotel?.plan || 'basico';
+  const esPro = plan === 'pro';
+
+  if (esSuperadmin) {
+    items.push(
+      { id: 'sa-dashboard',     label: 'Dashboard SaaS',      icon: 'bar-chart-2' },
+      { id: 'sa-hoteles',       label: 'Hoteles',              icon: 'building-2' },
+      { id: 'sa-suscripciones', label: 'Suscripciones',        icon: 'credit-card' },
+    );
+  } else {
+    items.push({ id: 'dashboard', label: 'Dashboard',   icon: 'layout-dashboard' });
+
+    if (['admin', 'recepcion'].includes(rol)) {
+      items.push(
+        { id: 'rack',         label: 'Rack de Habitaciones', icon: 'grid-3x3' },
+        { id: 'reservas',     label: 'Reservas',             icon: 'calendar' },
+        { id: 'calendario',   label: 'Calendario',           icon: 'calendar-days' },
+        { id: 'huespedes',    label: 'Huéspedes',            icon: 'users' },
+        { id: 'caja',         label: 'Caja / Turno',         icon: 'dollar-sign' },
+        { id: 'tiendita',     label: 'Tiendita',             icon: 'shopping-bag' },
+        { id: 'facturacion',  label: 'Facturación SUNAT',    icon: 'file-text' },
+      );
+    }
+
+    // Plan PRO: módulos de restaurante visibles para admin, recepcion, restaurante y cocina
+    if (esPro && ['admin', 'recepcion', 'restaurante'].includes(rol)) {
+      items.push(
+        { separator: true },
+        { id: 'restaurante', label: 'Restaurante', icon: 'utensils' },
+      );
+    }
+    if (esPro && ['admin', 'cocina'].includes(rol)) {
+      if (!items.find(i => i.separator && items.indexOf(i) > items.length - 4)) {
+        items.push({ separator: true });
+      }
+      items.push({ id: 'cocina', label: 'Cocina / Comandas', icon: 'chef-hat' });
+    }
+
+    if (rol === 'limpieza') {
+      items.push({ id: 'limpieza', label: 'Estado de Habitaciones', icon: 'sparkles' });
+    }
+
+    if (rol === 'admin') {
+      items.push(
+        { separator: true },
+        { id: 'reportes',          label: 'Reportes',        icon: 'trending-up' },
+        { id: 'personal',          label: 'Personal',        icon: 'user-cog' },
+        { id: 'habitacion-config', label: 'Habitaciones',    icon: 'bed' },
+        { id: 'suscripcion',       label: 'Mi Suscripción',  icon: 'shield-check' },
+        { id: 'sunat-config',      label: 'Config. SUNAT',   icon: 'settings' },
+      );
+    }
+  }
+
+  // SVG paths de lucide (simplificado inline)
+  const svgPaths = {
+    'bar-chart-2':      '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',
+    'trending-up':      '<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>',
+    'building-2':       '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+    'credit-card':      '<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>',
+    'layout-dashboard': '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>',
+    'grid-3x3':         '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18M15 3v18"/>',
+    'calendar':         '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
+    'calendar-days':    '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="8" y2="14"/><line x1="12" y1="14" x2="12" y2="14"/><line x1="16" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="8" y2="18"/><line x1="12" y1="18" x2="12" y2="18"/>',
+    'users':            '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    'dollar-sign':      '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+    'shopping-bag':     '<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',
+    'file-text':        '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>',
+    'sparkles':         '<path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3z"/>',
+    'user-cog':         '<circle cx="18" cy="15" r="3"/><path d="M18 12v.01M18 18v.01M14.6 13.4l.01.01M21.4 16.6l.01.01M13.4 16.6l.01.01M21.4 13.4l.01.01"/><path d="M12 12c2.21 0 4-1.79 4-4S14.21 4 12 4 8 5.79 8 8s1.79 4 4 4z"/><path d="M8 20v-2a4 4 0 0 1 4-4c.7 0 1.36.19 1.94.5"/>',
+    'bed':              '<path d="M2 4v16M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',
+    'shield-check':     '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>',
+    'settings':         '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+    'utensils':         '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>',
+    'chef-hat':         '<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',
+  };
+
+  items.forEach(item => {
+    if (item.separator) {
+      const sep = document.createElement('div');
+      sep.className = 'nav-separador';
+      sidebar.appendChild(sep);
+      return;
+    }
+    const btn = document.createElement('button');
+    btn.className = 'nav-item';
+    btn.dataset.modulo = item.id;
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        ${svgPaths[item.icon] || ''}
+      </svg>
+      ${item.label}
+    `;
+    btn.addEventListener('click', () => navegarA(item.id));
+    sidebar.appendChild(btn);
+  });
+
+  // En móvil: limitar a 4 ítems visibles + botón "Más"
+  aplicarMenuMobile(sidebar, items, svgPaths);
+}
+
+function aplicarMenuMobile(sidebar, items, svgPaths) {
+  // Solo aplica en móvil
+  const mq = window.matchMedia('(max-width: 768px)');
+  if (!mq.matches) return;
+
+  // Ítems reales (sin separadores)
+  const itemsReales = items.filter(i => !i.separator);
+  const VISIBLE = 4;
+
+  // Ocultar los que van en "Más"
+  const btns = sidebar.querySelectorAll('.nav-item');
+  btns.forEach((btn, i) => {
+    if (i >= VISIBLE) btn.style.display = 'none';
+  });
+
+  // Botón "Más"
+  const btnMas = document.createElement('button');
+  btnMas.className = 'nav-item';
+  btnMas.id = 'btn-nav-mas';
+  btnMas.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/>
+    </svg>
+    Más
+  `;
+  btnMas.addEventListener('click', toggleMenuMas);
+  sidebar.appendChild(btnMas);
+
+  // Volver a aplicar si cambia el tamaño
+  mq.addEventListener('change', e => {
+    if (!e.matches) {
+      // Desktop: mostrar todo, quitar botón Más y panel
+      btns.forEach(b => b.style.display = '');
+      btnMas.remove();
+      const panel = document.getElementById('panel-nav-mas');
+      if (panel) panel.remove();
+    }
+  });
+}
+
+function toggleMenuMas() {
+  // Navegar a la pantalla "Más" como módulo completo
+  navegarA('mas-mobile');
+}
+
+
+// ── Router SPA ───────────────────────────────────────────────
+let moduloActual = null;
+
+function navegarA(modulo) {
+  moduloActual = modulo;
+
+  // Cerrar panel Más si está abierto
+  const panelMas = document.getElementById('panel-nav-mas');
+  if (panelMas) panelMas.remove();
+
+  // Marcar nav activo
+  try {
+    document.querySelectorAll('.nav-item').forEach(b => {
+      if (b.id === 'btn-nav-mas') {
+        // Botón Más → activo si el módulo está en los ítems ocultos
+        const ocultos = [...document.querySelectorAll('#sidebar .nav-item[style*="display"]')]
+          .map(n => n.dataset.modulo);
+        b.classList.toggle('activo', ocultos.includes(modulo));
+      } else {
+        b.classList.toggle('activo', b.dataset.modulo === modulo);
+      }
+    });
+  } catch (e) { console.warn('nav activo:', e); }
+
+  // Renderizar el módulo
+  if (typeof renderModulo === 'function') {
+    try {
+      renderModulo(modulo);
+    } catch (e) {
+      console.error('Error en renderModulo(' + modulo + '):', e);
+      const cont = document.getElementById('contenido');
+      if (cont) cont.innerHTML = `
+        <div style="padding:2rem;color:#DC2626;font-size:0.9rem;">
+          Ocurrió un error cargando el módulo <strong>${modulo}</strong>: ${e.message}
+        </div>`;
+    }
+  } else {
+    const cont = document.getElementById('contenido');
+    if (cont) cont.innerHTML = `
+      <div style="padding:2rem;color:var(--texto-sub);font-size:0.9rem;">
+        Cargando módulo <strong>${modulo}</strong>…
+      </div>`;
+  }
+}
+
+// ── Toggle contraseña ────────────────────────────────────────
+document.getElementById('btn-toggle-pass').addEventListener('click', () => {
+  const inp = document.getElementById('inp-pass');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+});
+
+// ── Login ────────────────────────────────────────────────────
+document.getElementById('btn-login').addEventListener('click', async () => {
+  const email = document.getElementById('inp-email').value.trim();
+  const pass  = document.getElementById('inp-pass').value;
+  const errEl = document.getElementById('login-error');
+  const btn   = document.getElementById('btn-login');
+  const texto = document.getElementById('btn-login-texto');
+
+  errEl.style.display = 'none';
+
+  if (!email || !pass) {
+    errEl.textContent = 'Ingresa tu correo y contraseña.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  texto.textContent = 'Ingresando…';
+
+  try {
+    await signIn(email, pass);
+    // Atajo Ctrl+K para abrir buscador
+    document.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const inp = document.getElementById('topbar-buscar');
+        if (inp) { inp.focus(); inp.select(); }
+      }
+      if (e.key === 'Escape') {
+        cerrarPanelBusqueda();
+        cerrarNotificaciones();
+      }
+    });
+  } catch (err) {
+    errEl.textContent = 'Correo o contraseña incorrectos.';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    texto.textContent = 'Ingresar al Sistema';
+  }
+});
+
+// Enter en campo contraseña
+document.getElementById('inp-pass').addEventListener('keydown', e => {
+  if (e.key === 'Enter') document.getElementById('btn-login').click();
+});
+
+// ── Auth state change (núcleo del router de sesión) ──────────
+let _sesionInicializada = false;
+let _usuarioActualId = null;
+
+db.auth.onAuthStateChange(async (event, session) => {
+  if (event === 'SIGNED_OUT' || !session) {
+    _sesionInicializada = false;
+    _usuarioActualId = null;
+    mostrarLogin();
+    return;
+  }
+
+  // Supabase re-dispara SIGNED_IN / TOKEN_REFRESHED cada vez que la pestaña
+  // recupera el foco. Si es el MISMO usuario que ya teníamos cargado, solo
+  // actualizamos el token y NO reconstruimos la vista (para no sacar al
+  // usuario del módulo donde está trabajando).
+  if (_sesionInicializada && session.user.id === _usuarioActualId) {
+    SESSION.user = session.user;
+    // Salvaguarda: si por algún motivo se perdió el perfil/hotel, recargarlos
+    // sin reconstruir la vista (para no sacar al usuario de donde está).
+    try {
+      if (!SESSION.perfil) SESSION.perfil = await cargarPerfil(session.user.id);
+      if (!SESSION.hotel && SESSION.perfil?.hotel_id) SESSION.hotel = await cargarHotel(SESSION.perfil.hotel_id);
+    } catch (e) { console.warn('No se pudo recargar perfil/hotel:', e); }
+    return;
+  }
+
+  try {
+    SESSION.user = session.user;
+    _usuarioActualId = session.user.id;
+
+    // Cargar perfil
+    SESSION.perfil = await cargarPerfil(session.user.id);
+
+    // Si tiene hotel asignado, cargarlo
+    if (SESSION.perfil.hotel_id) {
+      SESSION.hotel = await cargarHotel(SESSION.perfil.hotel_id);
+    }
+
+    // Topbar
+    const nombreMostrar = SESSION.hotel ? SESSION.hotel.nombre_comercial : (SESSION.perfil.es_superadmin ? 'SuperAdmin' : '—');
+    document.getElementById('topbar-hotel-nombre').textContent = nombreMostrar;
+    document.getElementById('topbar-rol').textContent =
+      SESSION.perfil.es_superadmin ? 'SuperAdmin' : SESSION.perfil.rol;
+    // Iniciales para el avatar
+    const iniciales = nombreMostrar.trim().split(/\s+/).slice(0,2).map(p => p[0] || '').join('').toUpperCase() || 'HY';
+    const avatarEl = document.getElementById('topbar-avatar');
+    if (avatarEl) avatarEl.textContent = iniciales;
+
+    // Construir sidebar
+    buildSidebar(SESSION.perfil.rol, SESSION.perfil.es_superadmin);
+
+    // Verificar suscripción (solo para no-superadmin con hotel)
+    if (!SESSION.perfil.es_superadmin && SESSION.hotel) {
+      const estado = estadoSuscripcion(SESSION.hotel);
+      const diasRestantes = Math.ceil(
+        (new Date(SESSION.hotel.fecha_vencimiento) - new Date()) / (1000 * 60 * 60 * 24)
+      );
+
+      if (estado === 'vencido' || estado === 'suspendido') {
+        _sesionInicializada = true;
+        mostrarApp();
+        mostrarPaywall();
+        return;
+      }
+
+      if (estado === 'por_vencer') {
+        mostrarBannerVencimiento(diasRestantes);
+        toast(
+          'Suscripción por vencer',
+          `Te quedan ${diasRestantes} día${diasRestantes !== 1 ? 's' : ''}. Renueva para no perder el acceso.`,
+          'warn',
+          0  // no auto-cierra
+        );
+      }
+    }
+
+    mostrarApp();
+
+    // Turno activo (para roles de caja)
+    if (['admin', 'recepcion'].includes(SESSION.perfil.rol)) {
+      SESSION.turnoActivo = await getTurnoAbierto();
+    }
+
+    // Notificaciones — cargar al inicio y refrescar cada 5 min
+    if (!SESSION.perfil.es_superadmin) {
+      if (typeof inicializarApiDoc === 'function') await inicializarApiDoc();
+      await cargarNotificaciones();
+      if (window._notiTicker) clearInterval(window._notiTicker);
+      window._notiTicker = setInterval(cargarNotificaciones, 5 * 60 * 1000);
+    }
+
+    // Navegar al módulo inicial según rol
+    const moduloInicial = SESSION.perfil.es_superadmin ? 'sa-dashboard' : 'rack';
+    navegarA(moduloInicial);
+
+    _sesionInicializada = true;
+
+    toast('Bienvenido', `Hola, ${SESSION.perfil.nombre_completo || session.user.email}`, 'ok');
+
+  } catch (err) {
+    console.error('Error cargando sesión:', err);
+    toast('Error de sesión', err.message, 'error');
+    await signOut();
+    mostrarLogin();
+  }
+});
+
+// ── Salir ────────────────────────────────────────────────────
+document.getElementById('btn-salir').addEventListener('click', async () => {
+  await signOut();
+  mostrarLogin();
+});
+
+// ── Init: verificar si ya hay sesión activa ──────────────────
+(async () => {
+  const session = await getSession();
+  if (!session) {
+    mostrarLogin();
+  }
+  // Si hay sesión, onAuthStateChange la dispara sola
+})();
+
+</script>
+
+</body>
+</html>
+<script>
+// ── Registro del Service Worker + Auto-actualización ─────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', async () => {
+    try {
+      // Usar ruta relativa para compatibilidad con GitHub Pages
+      const swUrl = new URL('./sw.js', window.location.href).href;
+      const scope  = new URL('./', window.location.href).href;
+
+      const reg = await navigator.serviceWorker.register(swUrl, { scope });
+      console.log('[PWA] SW registrado:', reg.scope);
+
+      // Detectar nueva versión
+      reg.addEventListener('updatefound', () => {
+        const nuevoSW = reg.installing;
+        nuevoSW.addEventListener('statechange', () => {
+          if (nuevoSW.state === 'installed' && navigator.serviceWorker.controller) {
+            console.log('[PWA] Nueva versión, activando...');
+            nuevoSW.postMessage({ tipo: 'SKIP_WAITING' });
+          }
+        });
+      });
+
+      // Recargar cuando el SW tome control
+      let refrescando = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refrescando) { refrescando = true; window.location.reload(); }
+      });
+
+      // Verificar actualizaciones cada 10 minutos
+      setInterval(() => reg.update().catch(()=>{}), 10 * 60 * 1000);
+
+    } catch (err) {
+      console.warn('[PWA] Error SW:', err);
+    }
+  });
+}
+</script>
