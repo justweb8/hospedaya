@@ -1437,7 +1437,7 @@
         </div>
       </div>
       <nav id="sidebar"></nav>
-      <a class="sidebar-ayuda" href="#" onclick="return false;">
+      <a class="sidebar-ayuda" href="#" onclick="abrirAyudaSoporte();return false;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
         </svg>
@@ -1777,7 +1777,7 @@ function buildSidebar(rol, esSuperadmin) {
 
     if (['admin', 'recepcion'].includes(rol)) {
       items.push(
-        { id: 'rack',         label: 'Rack de Habitaciones', icon: 'grid-3x3' },
+        { id: 'rack',         label: 'Habitaciones',         icon: 'grid-3x3' },
         { id: 'reservas',     label: 'Reservas',             icon: 'calendar' },
         { id: 'calendario',   label: 'Calendario',           icon: 'calendar-days' },
         { id: 'huespedes',    label: 'Huéspedes',            icon: 'users' },
@@ -1787,12 +1787,14 @@ function buildSidebar(rol, esSuperadmin) {
       );
     }
 
-    // Plan PRO: módulos de restaurante visibles para admin, recepcion, restaurante y cocina
-    if (esPro && ['admin', 'recepcion', 'restaurante'].includes(rol)) {
+    // Plan PRO: restaurante para admin y rol restaurante; cocina para admin y rol cocina
+    if (esPro && ['admin', 'restaurante'].includes(rol)) {
       items.push(
         { separator: true },
         { id: 'restaurante', label: 'Restaurante', icon: 'utensils' },
       );
+      // El rol restaurante cobra con su propia caja
+      if (rol === 'restaurante') items.push({ id: 'caja', label: 'Caja / Turno', icon: 'dollar-sign' });
     }
     if (esPro && ['admin', 'cocina'].includes(rol)) {
       if (!items.find(i => i.separator && items.indexOf(i) > items.length - 4)) {
@@ -1810,7 +1812,7 @@ function buildSidebar(rol, esSuperadmin) {
         { separator: true },
         { id: 'reportes',          label: 'Reportes',        icon: 'trending-up' },
         { id: 'personal',          label: 'Personal',        icon: 'user-cog' },
-        { id: 'habitacion-config', label: 'Habitaciones',    icon: 'bed' },
+        { id: 'habitacion-config', label: 'Config. habitaciones', icon: 'bed' },
         { id: 'suscripcion',       label: 'Mi Suscripción',  icon: 'shield-check' },
         { id: 'sunat-config',      label: 'Config. SUNAT',   icon: 'settings' },
       );
@@ -1839,6 +1841,21 @@ function buildSidebar(rol, esSuperadmin) {
     'utensils':         '<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>',
     'chef-hat':         '<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',
   };
+
+  // Aplicar la tabla de permisos (app.js) y limpiar separadores sobrantes
+  if (typeof puedeVerModulo === 'function') {
+    // Buscador de huéspedes y campana de avisos solo para quien usa esos datos
+    const busc = document.querySelector('.topbar-search');
+    if (busc) busc.style.visibility = puedeVerModulo('huespedes') ? '' : 'hidden'; // hidden: conserva el espacio
+    const camp = document.getElementById('btn-campana');
+    if (camp) camp.style.display = (esSuperadmin || puedeVerModulo('rack')) ? '' : 'none';
+    const filtrados = items.filter(i => i.separator || puedeVerModulo(i.id));
+    items.length = 0;
+    filtrados.forEach((it, idx) => {
+      if (it.separator && (idx === 0 || filtrados[idx-1]?.separator || idx === filtrados.length-1)) return;
+      items.push(it);
+    });
+  }
 
   items.forEach(item => {
     if (item.separator) {
@@ -1875,11 +1892,18 @@ function aplicarMenuMobile(sidebar, items, svgPaths) {
 
   // Ocultar los que van en "Más"
   const btns = sidebar.querySelectorAll('.nav-item');
+  // Etiquetas cortas para la barra inferior (evita textos cortados)
+  const CORTO = { rack:'Habitaciones', 'habitacion-config':'Config.', facturacion:'SUNAT', 'sunat-config':'SUNAT', limpieza:'Habitaciones' };
   btns.forEach((btn, i) => {
     if (i >= VISIBLE) btn.style.display = 'none';
+    const corto = CORTO[btn.dataset.modulo];
+    if (corto) {
+      const txt = [...btn.childNodes].reverse().find(n => n.nodeType === 3 && n.textContent.trim());
+      if (txt) { btn.dataset.labelLargo = txt.textContent; txt.textContent = ' ' + corto + ' '; }
+    }
   });
 
-  // Botón "Más"
+  // Botón "Más": solo si hay secciones que no caben en la barra
   const btnMas = document.createElement('button');
   btnMas.className = 'nav-item';
   btnMas.id = 'btn-nav-mas';
@@ -1890,13 +1914,19 @@ function aplicarMenuMobile(sidebar, items, svgPaths) {
     Más
   `;
   btnMas.addEventListener('click', toggleMenuMas);
-  sidebar.appendChild(btnMas);
+  if (itemsReales.length > VISIBLE) sidebar.appendChild(btnMas);
 
   // Volver a aplicar si cambia el tamaño
   mq.addEventListener('change', e => {
     if (!e.matches) {
       // Desktop: mostrar todo, quitar botón Más y panel
-      btns.forEach(b => b.style.display = '');
+      btns.forEach(b => {
+        b.style.display = '';
+        if (b.dataset.labelLargo) {
+          const txt = [...b.childNodes].reverse().find(n => n.nodeType === 3 && n.textContent.trim());
+          if (txt) txt.textContent = b.dataset.labelLargo;
+        }
+      });
       btnMas.remove();
       const panel = document.getElementById('panel-nav-mas');
       if (panel) panel.remove();
@@ -1937,7 +1967,14 @@ function navegarA(modulo) {
   // Renderizar el módulo
   if (typeof renderModulo === 'function') {
     try {
-      renderModulo(modulo);
+      const p = renderModulo(modulo);
+      // Si otro módulo terminó de cargar después (clics rápidos / red lenta),
+      // volver a pintar el módulo que el usuario eligió al final.
+      if (p && typeof p.then === 'function') {
+        p.then(() => {
+          if (moduloActual !== modulo && moduloActual) renderModulo(moduloActual);
+        }).catch(() => {});
+      }
     } catch (e) {
       console.error('Error en renderModulo(' + modulo + '):', e);
       const cont = document.getElementById('contenido');
@@ -2100,7 +2137,11 @@ db.auth.onAuthStateChange(async (event, session) => {
     }
 
     // Navegar al módulo inicial según rol
-    const moduloInicial = SESSION.perfil.es_superadmin ? 'sa-dashboard' : 'rack';
+    // Pantalla principal de cada rol: rack (admin/recepción), limpieza, cocina, restaurante
+    const permitidos = typeof modulosPermitidos === 'function' ? modulosPermitidos() : ['rack'];
+    const moduloInicial = SESSION.perfil.es_superadmin ? 'sa-dashboard'
+      : permitidos.includes('rack') ? 'rack'
+      : (permitidos.find(m => m !== 'dashboard') || permitidos[0] || 'dashboard');
     navegarA(moduloInicial);
 
     _sesionInicializada = true;

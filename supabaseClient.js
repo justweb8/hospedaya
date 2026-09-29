@@ -92,7 +92,7 @@ async function getHabitaciones() {
     .from('habitaciones')
     .select(`
       *,
-      tipos_habitacion ( nombre, tarifa_noche, tarifa_horas, horas_bloque )
+      tipos_habitacion ( nombre, tarifa_noche, tarifa_horas, horas_bloque, capacidad_max )
     `)
     .eq('hotel_id', SESSION.hotel.id)
     .eq('activo', true)
@@ -162,6 +162,18 @@ async function getSuscripcionHotel(hotelId) {
     .single();
   if (error) throw error;
   return data;
+}
+
+// Verifica el resultado de una escritura: si la BD devolvió error, lo lanza
+// (así los try/catch muestran el error en vez de un falso "guardado").
+function chk(res) {
+  if (res && res.error) {
+    const e = res.error;
+    if (e.code === '23505') e.message = 'Ya existe un registro con esos mismos datos (duplicado).';
+    if (e.code === '42501') e.message = 'No tienes permiso para realizar esta acción.';
+    throw e;
+  }
+  return res;
 }
 
 // Llamar función SECURITY DEFINER

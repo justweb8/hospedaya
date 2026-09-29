@@ -48,6 +48,12 @@
   }
 }
 
+/* Fechas en español: "28 de setiembre de 2026" → solo la primera letra en
+   mayúscula (text-transform:capitalize ponía "28 De Setiembre De 2026") */
+[style*="text-transform:capitalize"] { text-transform: none !important; }
+span[style*="text-transform:capitalize"] { display: inline-block; }
+[style*="text-transform:capitalize"]::first-letter { text-transform: uppercase; }
+
 /* El QR generado (qrcodejs) puede venir como <img> o <canvas>:
    lo centramos dentro de su caja */
 #qr-ticket-box img,

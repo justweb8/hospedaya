@@ -29,7 +29,7 @@ async function cargarConfigSunat() {
     //    Para los hoteles, la RPC intermedia la petición — el token nunca llega al browser
     const { data: gl } = await db.from('configuracion_global')
       .select('fl_endpoint, proveedor_emision')
-      .eq('id', 1).single();
+      .eq('id', 1).maybeSingle();
 
     if (cfg?.token_api) {
       // Si el hotel tiene su propio token de FacturaLibre (empresa propia)
@@ -135,13 +135,15 @@ async function moduloFacturacion() {
     const montoTotal   = lista.reduce((s,c) => s + Number(c.total||0), 0);
     const totalFact    = lista.filter(c => c.tipo_doc === 'factura').length;
     const totalBoletas = lista.filter(c => c.tipo_doc === 'boleta').length;
-    const totalEnviados= lista.filter(c => c.estado === 'ACEPTADO').length;
-    const pendientes   = lista.filter(c => c.estado === 'PENDIENTE_ENVIO').length;
+    const totalEnviados= lista.filter(c => c.estado_sunat === 'ACEPTADO').length;
+    const pendientes   = lista.filter(c => c.estado_sunat === 'PENDIENTE_ENVIO').length;
 
     // Filtro activo
     window._factFiltro = window._factFiltro || 'Todos';
 
     const esMobile = window.innerWidth <= 768;
+    // Solo quien tiene acceso a Config. SUNAT (el dueño) ve los accesos a ella
+    const verCfgSunat = typeof puedeVerModulo === 'function' && puedeVerModulo('sunat-config');
 
     if (esMobile) {
       contenido().innerHTML = `
@@ -158,21 +160,21 @@ async function moduloFacturacion() {
         </div>
 
         <!-- Badge modo facturador -->
-        <div style="display:flex;align-items:center;justify-content:space-between;background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:0.75rem 1rem;margin-bottom:0.85rem;cursor:pointer;" onclick="navegarA('sunat-config')">
+        <div style="display:${verCfgSunat?'flex':'none'};align-items:center;justify-content:space-between;background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:0.75rem 1rem;margin-bottom:0.85rem;${verCfgSunat?'cursor:pointer;" onclick="navegarA(\'sunat-config\')':''}">
           <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;font-weight:600;color:var(--texto-sub);">
             <span style="width:8px;height:8px;border-radius:50%;background:${API_SUNAT.activa?'#16A34A':'#CA8A04'};flex-shrink:0;"></span>
             ${API_SUNAT.activa ? 'Facturador conectado' : 'Modo sin facturador conectado'}
           </div>
-          <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><polyline points="9 18 15 12 9 6"/></svg>
+          ${verCfgSunat ? '<svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><polyline points="9 18 15 12 9 6"/></svg>' : ''}
         </div>
 
         <!-- Botones Config + Emitir -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
-          <button onclick="navegarA('sunat-config')"
+        <div style="display:grid;grid-template-columns:${verCfgSunat?'1fr 1fr':'1fr'};gap:0.6rem;margin-bottom:1rem;">
+          ${verCfgSunat ? `<button onclick="navegarA('sunat-config')"
             style="display:flex;align-items:center;justify-content:center;gap:0.4rem;padding:0.7rem 0.5rem;background:white;border:1.5px solid var(--gris-borde);border-radius:12px;font-size:0.8rem;font-weight:600;color:var(--texto-sub);cursor:pointer;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51"/></svg>
             Configuración SUNAT
-          </button>
+          </button>` : ''}
           <button onclick="abrirEmitirComprobante()"
             style="display:flex;align-items:center;justify-content:center;gap:0.4rem;padding:0.7rem 0.5rem;background:var(--azul);border:none;border-radius:12px;font-size:0.8rem;font-weight:700;color:white;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
             <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -235,15 +237,8 @@ async function moduloFacturacion() {
 
         <!-- Filtros fila -->
         <div style="display:flex;gap:0.5rem;margin-bottom:1rem;overflow-x:auto;scrollbar-width:none;">
-          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);white-space:nowrap;cursor:pointer;flex-shrink:0;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Todas las fechas
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;"><polyline points="6 9 12 15 18 9"/></svg>
-          </div>
-          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);white-space:nowrap;cursor:pointer;flex-shrink:0;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            Filtros
-          </div>
+          <select id="fact-filtro-fecha" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todas las fechas</option><option value="hoy">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="mes">Este mes</option></select>
+          <select id="fact-filtro-estado" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todos los estados</option><option value="PENDIENTE_ENVIO">Pendiente de envío</option><option value="ACEPTADO">Aceptado</option><option value="RECHAZADO">Rechazado</option><option value="ANULADO">Anulado</option></select>
         </div>
 
         <!-- Lista comprobantes móvil -->
@@ -284,14 +279,14 @@ async function moduloFacturacion() {
         </div>
         <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
           <!-- Badge modo sin facturador -->
-          <span style="display:inline-flex;align-items:center;gap:0.45rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.78rem;font-weight:600;color:var(--texto-sub);">
-            <span style="width:8px;height:8px;border-radius:50%;background:#16A34A;"></span>
-            Modo sin facturador conectado
+          <span style="display:${verCfgSunat?'inline-flex':'none'};align-items:center;gap:0.45rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.4rem 0.9rem;font-size:0.78rem;font-weight:600;color:var(--texto-sub);">
+            <span style="width:8px;height:8px;border-radius:50%;background:${API_SUNAT.activa?'#16A34A':'#CA8A04'};"></span>
+            ${API_SUNAT.activa ? `Facturador conectado · ${API_SUNAT.modo_prod ? 'Producción' : 'Pruebas'}` : 'Modo sin facturador conectado'}
           </span>
-          <button onclick="navegarA('config-sunat')" style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.6rem 0.9rem;font-size:0.82rem;font-weight:500;color:var(--texto-sub);cursor:pointer;">
+          ${verCfgSunat ? `<button onclick="navegarA('sunat-config')" style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.6rem 0.9rem;font-size:0.82rem;font-weight:500;color:var(--texto-sub);cursor:pointer;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 0-14.14 0M4.93 19.07a10 10 0 0 0 14.14 0M4.93 4.93L19.07 19.07"/></svg>
             Configuración SUNAT
-          </button>
+          </button>` : ''}
           <button onclick="abrirEmitirComprobante()" style="width:auto;padding:0.6rem 1.1rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.83rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(26,63,166,0.3);display:flex;align-items:center;gap:0.45rem;">
             <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Emitir comprobante
@@ -300,7 +295,7 @@ async function moduloFacturacion() {
       </div>
 
       <!-- Banner info modo sin OSE -->
-      ${!API_SUNAT.activa ? `
+      ${verCfgSunat && !API_SUNAT.activa ? `
       <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;background:#EFF6FF;border:1px solid #BFDBFE;border-radius:12px;padding:0.85rem 1.25rem;margin-bottom:1.25rem;flex-wrap:wrap;">
         <div style="display:flex;align-items:flex-start;gap:0.75rem;">
           <div style="width:30px;height:30px;border-radius:50%;background:#2563EB;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -308,7 +303,7 @@ async function moduloFacturacion() {
           </div>
           <span style="font-size:0.82rem;color:#1E40AF;">Los comprobantes se guardan como <strong>PENDIENTE_ENVIO</strong> y puedes imprimirlos o enviarlos por WhatsApp. Cuando conectes tu OSE, se declararán automáticamente a SUNAT.</span>
         </div>
-        <a href="#" style="font-size:0.82rem;font-weight:600;color:#2563EB;white-space:nowrap;text-decoration:none;display:flex;align-items:center;gap:0.3rem;">Más información <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a>
+        ${verCfgSunat ? `<a href="#" onclick="event.preventDefault();navegarA('sunat-config')" style="font-size:0.82rem;font-weight:600;color:#2563EB;white-space:nowrap;text-decoration:none;display:flex;align-items:center;gap:0.3rem;">Configurar <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></a>` : ''}
       </div>` : ''}
 
       <!-- 5 tarjetas métricas -->
@@ -343,15 +338,8 @@ async function moduloFacturacion() {
             <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="fact-buscar" placeholder="Buscar por número, cliente o tipo…" oninput="filtrarFactBuscar()" style="border:none;background:none;outline:none;font-size:0.82rem;width:200px;font-family:inherit;color:var(--texto);">
           </div>
-          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.8rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Todas las fechas
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
-          </div>
-          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.8rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            Filtros
-          </div>
+          <select id="fact-filtro-fecha" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todas las fechas</option><option value="hoy">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="mes">Este mes</option></select>
+          <select id="fact-filtro-estado" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todos los estados</option><option value="PENDIENTE_ENVIO">Pendiente de envío</option><option value="ACEPTADO">Aceptado</option><option value="RECHAZADO">Rechazado</option><option value="ANULADO">Anulado</option></select>
         </div>
       </div>
 
@@ -396,8 +384,8 @@ async function moduloFacturacion() {
         </div>
       </div>
 
-      <!-- Banner inferior -->
-      <div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:1.25rem 1.5rem;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;position:relative;overflow:hidden;">
+      <!-- Banner inferior (solo si falta conectar y quien mira puede configurarlo) -->
+      ${verCfgSunat && !API_SUNAT.activa ? `<div style="background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:1.25rem 1.5rem;display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;position:relative;overflow:hidden;">
         <svg style="position:absolute;bottom:0;right:80px;opacity:0.09;" viewBox="0 0 300 80" width="300" height="80" preserveAspectRatio="none">
           <path d="M0 60 Q75 20 150 50 Q225 80 300 40 L300 80 L0 80 Z" fill="#2563EB"/>
         </svg>
@@ -408,11 +396,11 @@ async function moduloFacturacion() {
           <div style="font-weight:700;color:var(--texto);">Conecta tu facturador para enviar automáticamente a SUNAT</div>
           <div style="font-size:0.82rem;color:var(--texto-sub);">Configura tu OSE y mantén tu facturación al día.</div>
         </div>
-        <button onclick="navegarA('config-sunat')" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:10px;padding:0.6rem 1.1rem;font-size:0.83rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;white-space:nowrap;">
+        <button onclick="navegarA('sunat-config')" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:10px;padding:0.6rem 1.1rem;font-size:0.83rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;white-space:nowrap;">
           Configurar SUNAT
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
-      </div>
+      </div>` : ''}
     `;
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar facturación', err.message);
@@ -444,13 +432,13 @@ function tarjetaComprobanteMobile(c) {
   const numero = `${c.serie||'?'}-${String(c.correlativo||0).padStart(8,'0')}`;
 
   return `
-    <div class="card" style="padding:0.9rem 1rem;margin-bottom:0.6rem;">
+    <div class="card fact-fila" data-tipo="${c.tipo_doc}" data-estado="${c.estado_sunat||''}" data-fecha="${fechaLocalISO(c.created_at)}" data-buscar="${escapeHtml((numero+' '+(c.razon_social_rec||'')+' '+(c.ruc_receptor||'')+' '+c.tipo_doc).toLowerCase())}" style="padding:0.9rem 1rem;margin-bottom:0.6rem;">
       <!-- Tipo + estado + acciones -->
       <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:0.65rem;">
         <span style="font-size:0.68rem;font-weight:700;color:${tipoColor};background:${tipoBg};padding:0.2rem 0.6rem;border-radius:999px;white-space:nowrap;">${tipo}</span>
         <span style="font-weight:700;font-size:0.85rem;color:var(--texto);flex:1;">${escapeHtml(numero)}</span>
         <span style="font-size:0.65rem;font-weight:700;color:${estColor};background:${estBg};padding:0.2rem 0.55rem;border-radius:999px;white-space:nowrap;">${estLabel}</span>
-        <button onclick="abrirAccionesComprobante('${c.id}')" style="padding:0.25rem 0.5rem;background:white;border:1px solid var(--gris-borde);border-radius:7px;cursor:pointer;color:var(--texto-sub);font-size:0.9rem;line-height:1;flex-shrink:0;">···</button>
+        <button onclick="accionesComprobante('${c.id}', this)" style="padding:0.25rem 0.5rem;background:white;border:1px solid var(--gris-borde);border-radius:7px;cursor:pointer;color:var(--texto-sub);font-size:0.9rem;line-height:1;flex-shrink:0;">···</button>
       </div>
       <!-- Cliente + total + fecha -->
       <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;">
@@ -494,13 +482,13 @@ function filaComprobante(c, idx) {
     RECHAZADO:       ['Rechazado',      '#DC2626','#FEF2F2'],
     ANULADO:         ['Anulado',        '#64748B','#F1F5F9'],
   };
-  const [estLabel, estColor, estBg] = estadoMap[c.estado] || ['—','#64748B','#F1F5F9'];
-  const anulable = c.estado !== 'ANULADO' && c.tipo_doc !== 'nota_credito';
+  const [estLabel, estColor, estBg] = estadoMap[c.estado_sunat] || ['—','#64748B','#F1F5F9'];
+  const anulable = c.estado_sunat !== 'ANULADO' && c.tipo_doc !== 'nota_credito';
   const fechaEm = new Date(c.created_at);
   const docLabel = c.num_doc_rec ? (c.tipo_doc==='factura'?'RUC':'DNI')+': '+c.num_doc_rec : '';
 
   return `
-    <tr class="fact-fila" data-tipo="${c.tipo_doc}" data-buscar="${(c.numero_completo+' '+(c.razon_social_rec||'')+' '+c.tipo_doc).toLowerCase()}" style="border-bottom:1px solid var(--gris-borde);">
+    <tr class="fact-fila" data-tipo="${c.tipo_doc}" data-estado="${c.estado_sunat||''}" data-fecha="${fechaLocalISO(c.created_at)}" data-buscar="${escapeHtml(((c.numero_completo||`${c.serie}-${String(c.correlativo).padStart(8,'0')}`)+' '+(c.razon_social_rec||'')+' '+(c.ruc_receptor||'')+' '+c.tipo_doc).toLowerCase())}" style="border-bottom:1px solid var(--gris-borde);">
       <td style="${tdCss()};color:var(--texto-sub);">${idx}</td>
       <td style="${tdCss()};font-family:monospace;font-weight:700;font-size:0.88rem;">${escapeHtml(c.numero_completo)}</td>
       <td style="${tdCss()}">
@@ -534,7 +522,7 @@ function filaComprobante(c, idx) {
           <button title="Enviar por WhatsApp" onclick="enviarComprobanteWA('${c.id}')" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:7px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#16A34A;" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
             <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" style="width:13px;height:13px;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347zM11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/></svg>
           </button>
-          <button title="Más opciones" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:7px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+          <button title="Más opciones" onclick="accionesComprobante('${c.id}', this)" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:7px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
           </button>
         </div>
@@ -562,9 +550,16 @@ function filtrarFacturacion(tipo) {
 }
 
 function filtrarFactBuscar() {
-  const q = (document.getElementById('fact-buscar')?.value||'').toLowerCase();
-  document.querySelectorAll('.fact-fila').forEach(tr => {
-    tr.style.display = !q || tr.dataset.buscar.includes(q) ? '' : 'none';
+  const q   = (document.getElementById('fact-buscar')?.value||'').toLowerCase().trim();
+  const per = document.getElementById('fact-filtro-fecha')?.value || '';
+  const est = document.getElementById('fact-filtro-estado')?.value || '';
+  const hoy = fechaLocalISO();
+  const hace = n => { const d = new Date(); d.setDate(d.getDate() - n); return fechaLocalISO(d); };
+  const mes  = hoy.slice(0, 7);
+  aplicarFiltroFilas('.fact-fila', el => {
+    const f = el.dataset.fecha || '';
+    const okFecha = !per || (per === 'hoy' && f === hoy) || (per === '7' && f >= hace(6)) || (per === '30' && f >= hace(29)) || (per === 'mes' && f.startsWith(mes));
+    return (!q || el.dataset.buscar.includes(q)) && okFecha && (!est || el.dataset.estado === est);
   });
 }
 
@@ -588,7 +583,7 @@ function abrirEmitirComprobante() {
         <div style="${ST.grupo}">
           <label style="${ST.label}">RUC del cliente *</label>
           <div style="display:flex; gap:0.4rem;">
-            <input style="${ST.input}" id="emi-ruc" maxlength="11" placeholder="20123456789">
+            <input style="${ST.input}" id="emi-ruc" maxlength="11" placeholder="Ej. 20123456789">
             <button type="button" style="${ST.btnSec}; padding:0.55rem 0.75rem;" id="btn-buscar-ruc" title="Buscar RUC">🔍</button>
           </div>
         </div>
@@ -599,6 +594,8 @@ function abrirEmitirComprobante() {
       </div>
 
       <div id="bloque-dni" style="${ST.grupo}">
+        <label style="${ST.label}">DNI del cliente (obligatorio desde S/ 700)</label>
+        <input style="${ST.input};margin-bottom:0.6rem;" id="emi-dni" maxlength="8" inputmode="numeric" placeholder="Ej. 12345678">
         <label style="${ST.label}">Nombre del cliente (opcional en boleta)</label>
         <input style="${ST.input}" id="emi-nombre" placeholder="Cliente varios">
       </div>
@@ -678,13 +675,26 @@ function abrirEmitirComprobante() {
     if (tipoSel === 'factura') {
       rucRec = $('#emi-ruc').value.trim();
       razonRec = $('#emi-razon').value.trim();
-      if (rucRec.length !== 11 || !razonRec) { errEl.textContent = 'Para factura, ingresa RUC (11 dígitos) y razón social.'; errEl.style.display = 'block'; return; }
+      if (!/^(10|15|17|20)\d{9}$/.test(rucRec) || !razonRec) { errEl.textContent = 'Para factura, ingresa RUC (11 dígitos) y razón social.'; errEl.style.display = 'block'; return; }
     } else {
       razonRec = $('#emi-nombre').value.trim() || 'Cliente varios';
+      const dniRec = $('#emi-dni').value.trim();
+      // SUNAT: una boleta desde S/ 700 debe identificar al cliente (DNI y nombre)
+      if (dniRec && !/^\d{8}$/.test(dniRec)) { errEl.textContent = 'El DNI debe tener 8 dígitos.'; errEl.style.display = 'block'; return; }
+      if (total >= 700 && (!dniRec || razonRec === 'Cliente varios')) { errEl.textContent = 'Desde S/ 700 la boleta debe llevar DNI y nombre del cliente.'; errEl.style.display = 'block'; return; }
+      rucRec = dniRec || null;
     }
 
     const btn = $('#btn-emitir-submit'); btn.disabled = true; btn.textContent = 'Emitiendo…';
     try {
+      // ── Verificar cuota CPE ANTES de crear el comprobante ──
+      const cuota = await verificarCuotaCPE();
+      if (!cuota.puede_emitir) {
+        mostrarAlertaCuota(cuota);
+        btn.disabled = false; btn.textContent = 'Emitir comprobante';
+        return;
+      }
+
       const base = total / (1 + IGV_TASA);
       const igv = total - base;
 
@@ -701,14 +711,6 @@ function abrirEmitirComprobante() {
         p_celular: $('#emi-celular').value.trim() || null,
         p_referencia_nc: null,
       });
-
-      // ── Verificar cuota CPE antes de insertar ────────────
-      const cuota = await verificarCuotaCPE();
-      if (!cuota.puede_emitir) {
-        mostrarAlertaCuota(cuota);
-        btn.disabled = false; btn.textContent = 'Emitir comprobante';
-        return;
-      }
 
       // Si hay facturador conectado, enviar a SUNAT
       if (API_SUNAT.activa) {
@@ -758,7 +760,7 @@ function buildPayloadFL(c, cfg) {
       tipo:        esFact ? '01' : esNC ? '07' : '03',
       serie:       c.serie,
       correlativo: String(c.correlativo).padStart(8, '0'),
-      fecha:       new Date(c.created_at).toISOString().slice(0, 10),
+      fecha:       fechaLocalISO(c.created_at),
       moneda:      'PEN',
       ambiente:    API_SUNAT.modo_prod ? 'produccion' : 'beta',
     },
@@ -818,10 +820,10 @@ async function enviarASunat(comprobanteId) {
     // ── Verificar cuota antes de emitir ──────────────────
     const cuota = await verificarCuotaCPE();
     if (!cuota.puede_emitir) {
-      await db.from('comprobantes_sunat').update({
+      chk(await db.from('comprobantes_sunat').update({
         estado_sunat:  'PENDIENTE_ENVIO',
         mensaje_sunat: `Cuota mensual agotada (${cuota.emitidos}/${cuota.limite})`,
-      }).eq('id', comprobanteId);
+      }).eq('id', comprobanteId));
       mostrarAlertaCuota(cuota);
       return;
     }
@@ -859,10 +861,10 @@ async function enviarASunat(comprobanteId) {
       String(c.correlativo).padStart(8,'0'),
       Number(c.igv||0).toFixed(2),
       Number(c.total).toFixed(2),
-      new Date(c.created_at).toISOString().slice(0,10),
+      fechaLocalISO(c.created_at),
     ].join('|');
 
-    await db.from('comprobantes_sunat').update({
+    chk(await db.from('comprobantes_sunat').update({
       estado_sunat:  'ACEPTADO',
       url_pdf:       info.pdf   || info.url_pdf   || null,
       url_xml:       info.xml   || info.url_xml   || null,
@@ -870,11 +872,12 @@ async function enviarASunat(comprobanteId) {
       codigo_qr:     info.qr    || qrTexto,
       migo_id:       info.id    || info.invoice_id || null,
       mensaje_sunat: info.sunat_description || info.mensaje || 'Aceptado por SUNAT',
-    }).eq('id', comprobanteId);
+    }).eq('id', comprobanteId));
 
     toast('✅ Emitido a SUNAT', `${c.serie}-${String(c.correlativo).padStart(8,'0')} aceptado`, 'ok');
 
   } catch (err) {
+    // Aquí no se relanza: ya estamos manejando el error del envío
     await db.from('comprobantes_sunat').update({
       estado_sunat:  'PENDIENTE_ENVIO',
       mensaje_sunat: 'Error: ' + err.message,
@@ -891,17 +894,33 @@ async function reintentarEnvio(comprobanteId) {
 }
 
 
-async function reintentarEnvio(comprobanteId) {
-  toast('Reintentando envío a SUNAT…', '', 'info', 2000);
-  await enviarASunat(comprobanteId);
-  moduloFacturacion();
-}
-
-
 
 // ════════════════════════════════════════════════════════════
 //  ANULAR (genera Nota de Crédito)
 // ════════════════════════════════════════════════════════════
+// Menú "⋮" de cada comprobante
+function accionesComprobante(id, btn) {
+  const c = window._compsCache?.[id];
+  if (!c) return;
+  const anulable = (c.estado_sunat || '') !== 'ANULADO' && c.tipo_doc !== 'nota_credito';
+  menuAcciones(btn, [
+    { texto: 'Ver detalle', accion: () => abrirModal(`Comprobante ${escapeHtml(c.numero_completo || `${c.serie}-${String(c.correlativo).padStart(8,'0')}`)}`, `
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:0.45rem 1rem;font-size:0.86rem;">
+        <span style="color:var(--texto-sub);">Tipo</span><strong>${escapeHtml({boleta:'Boleta', factura:'Factura', nota_credito:'Nota de crédito'}[c.tipo_doc] || c.tipo_doc)}</strong>
+        <span style="color:var(--texto-sub);">Fecha</span><strong>${fechaHora(c.created_at)}</strong>
+        <span style="color:var(--texto-sub);">Cliente</span><strong>${escapeHtml(c.razon_social_rec || '—')}</strong>
+        <span style="color:var(--texto-sub);">Documento</span><strong>${escapeHtml(c.ruc_receptor || '—')}</strong>
+        <span style="color:var(--texto-sub);">Total</span><strong>${soles(c.total)} (IGV ${soles(c.igv || 0)})</strong>
+        <span style="color:var(--texto-sub);">Estado</span><strong>${escapeHtml(c.estado_sunat || '—')}</strong>
+        ${c.mensaje_sunat ? `<span style="color:var(--texto-sub);">Nota</span><span>${escapeHtml(c.mensaje_sunat)}</span>` : ''}
+      </div>`, { ancho:'440px' }) },
+    { texto: 'Imprimir ticket', accion: () => imprimirTicket(id) },
+    { texto: 'Descargar PDF', accion: () => descargarPDF(id) },
+    { texto: 'Enviar por WhatsApp', accion: () => enviarComprobanteWA(id) },
+    anulable && SESSION.perfil?.rol === 'admin' && { texto: 'Anular (nota de crédito)', peligro: true, accion: () => anularComprobante(id) },
+  ]);
+}
+
 async function anularComprobante(comprobanteId) {
   const c = window._compsCache[comprobanteId];
   if (!c) return;
@@ -932,7 +951,7 @@ async function anularComprobante(comprobanteId) {
         p_referencia_nc: comprobanteId,
       });
       // Marcar el original como anulado
-      await db.from('comprobantes_sunat').update({ estado_sunat: 'ANULADO', mensaje_sunat: motivo }).eq('id', comprobanteId);
+      chk(await db.from('comprobantes_sunat').update({ estado_sunat: 'ANULADO', mensaje_sunat: motivo }).eq('id', comprobanteId));
       if (API_SUNAT.activa) await enviarASunat(resp.comprobante_id);
       cerrarModal();
       toast('Comprobante anulado', 'NC ' + resp.numero_completo, 'ok');
@@ -954,7 +973,7 @@ function construirTicketHTML(c) {
   const qrTexto = [
     c.ruc_emisor, COD_TIPO[c.tipo_doc] || '03', c.serie, c.correlativo,
     Number(c.igv).toFixed(2), Number(c.total).toFixed(2),
-    fecha.slice(0,10), c.ruc_receptor ? '6' : '1', c.ruc_receptor || '-',
+    fechaLocalISO(c.created_at), c.ruc_receptor ? '6' : '1', c.ruc_receptor || '-',
   ].join('|');
 
   return `
@@ -984,7 +1003,7 @@ function construirTicketHTML(c) {
       <div style="text-align:center;" id="qr-ticket-box"></div>
       ${c.hash_cpe ? `<div style="font-size:8px; text-align:center; word-break:break-all;">Hash: ${escapeHtml(c.hash_cpe)}</div>` : ''}
       <div style="text-align:center; font-size:9px; margin-top:2mm;">
-        ${c.estado === 'PENDIENTE_ENVIO' ? '*** PENDIENTE DE ENVÍO A SUNAT ***<br>' : ''}
+        ${c.estado_sunat === 'PENDIENTE_ENVIO' ? '*** PENDIENTE DE ENVÍO A SUNAT ***<br>' : ''}
         Representación impresa del comprobante<br>
         electrónico. ¡Gracias por su preferencia!
       </div>
@@ -1016,7 +1035,7 @@ function imprimirTicket(comprobanteId) {
   const qrTexto = [
     c.ruc_emisor, COD_TIPO[c.tipo_doc] || '03', c.serie, c.correlativo,
     Number(c.igv).toFixed(2), Number(c.total).toFixed(2),
-    new Date(c.created_at).toISOString().slice(0,10),
+    fechaLocalISO(c.created_at),
     c.ruc_receptor ? '6' : '1', c.ruc_receptor || '-',
   ].join('|');
   renderQR(cont.querySelector('#qr-ticket-box'), c.codigo_qr || qrTexto);
@@ -1081,7 +1100,7 @@ async function descargarPDF(comprobanteId) {
   } catch {}
 
   doc.setFont('courier','normal'); doc.setFontSize(7);
-  if (c.estado === 'PENDIENTE_ENVIO') { doc.text('*** PENDIENTE DE ENVIO A SUNAT ***', cx, y, {align:'center'}); y += 3; }
+  if (c.estado_sunat === 'PENDIENTE_ENVIO') { doc.text('*** PENDIENTE DE ENVIO A SUNAT ***', cx, y, {align:'center'}); y += 3; }
   doc.text('Gracias por su preferencia', cx, y, { align:'center' });
 
   doc.save(`${c.numero_completo}.pdf`);
@@ -1160,6 +1179,17 @@ async function moduloSunatConfig() {
       cfg = nuevo || defaults;
     }
 
+    // Estado real de la configuración (antes decía "Listo" siempre)
+    const faltanSunat = [];
+    if (!/^\d{11}$/.test(String(cfg.ruc_emisor||'').trim())) faltanSunat.push('RUC emisor (11 dígitos)');
+    if (!String(cfg.razon_social||'').trim()) faltanSunat.push('razón social');
+    if (!cfg.usuario_sol || !cfg.clave_sol) faltanSunat.push('credenciales SOL');
+    if (!cfg.token_api) faltanSunat.push('token del facturador');
+    const sunatListo = faltanSunat.length === 0;
+    const sunatEstadoTxt = sunatListo
+      ? `Listo para emitir comprobantes (${cfg.modo_produccion ? 'producción' : 'pruebas'})`
+      : 'Falta completar: ' + faltanSunat.join(', ');
+
     const esMobile = window.innerWidth <= 768;
 
     if (esMobile) {
@@ -1201,11 +1231,11 @@ async function moduloSunatConfig() {
             </div>
             <div style="margin-bottom:0.75rem;">
               <label style="${ST.label}">RUC emisor *</label>
-              <input style="${ST.input}" id="s-ruc" value="${escapeHtml(cfg.ruc_emisor||'')}" placeholder="20123456789">
+              <input style="${ST.input}" id="s-ruc" value="${escapeHtml(cfg.ruc_emisor||'')}" placeholder="Ej. 20123456789">
             </div>
             <div>
               <label style="${ST.label}">Razón social *</label>
-              <input style="${ST.input}" id="s-rs" value="${escapeHtml(cfg.razon_social||'')}" placeholder="Hotel Las Palmeras SAC">
+              <input style="${ST.input}" id="s-rs" value="${escapeHtml(cfg.razon_social||'')}" placeholder="Ej. Hotel Las Palmeras SAC">
             </div>
           </div>
 
@@ -1383,7 +1413,7 @@ async function moduloSunatConfig() {
                 </div>
                 <div>
                   <div style="font-weight:700;font-size:0.88rem;">Conexión con SUNAT</div>
-                  <div style="font-size:0.7rem;color:var(--texto-sub);">Listo para emitir comprobantes</div>
+                  <div style="font-size:0.7rem;color:${sunatListo?'var(--texto-sub)':'#B45309'};">${escapeHtml(sunatEstadoTxt)}</div>
                 </div>
               </div>
               <button onclick="probarConexionSunat()" style="display:flex;align-items:center;gap:0.35rem;background:#EFF6FF;border:1.5px solid #BFDBFE;border-radius:9px;padding:0.45rem 0.75rem;font-size:0.75rem;font-weight:600;color:var(--azul);cursor:pointer;white-space:nowrap;">
@@ -1626,10 +1656,10 @@ async function moduloSunatConfig() {
             </svg>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
               <div style="display:flex;align-items:center;gap:0.75rem;">
-                <div style="width:14px;height:14px;border-radius:50%;background:#16A34A;box-shadow:0 0 0 4px #BBF7D0;flex-shrink:0;"></div>
+                <div style="width:14px;height:14px;border-radius:50%;background:${sunatListo?'#16A34A':'#F59E0B'};box-shadow:0 0 0 4px ${sunatListo?'#BBF7D0':'#FDE68A'};flex-shrink:0;"></div>
                 <div>
                   <div style="font-weight:700;font-size:0.92rem;">Conexión con SUNAT</div>
-                  <div style="font-size:0.75rem;color:var(--texto-sub);">Listo para emitir comprobantes</div>
+                  <div style="font-size:0.75rem;color:${sunatListo?'var(--texto-sub)':'#B45309'};">${escapeHtml(sunatEstadoTxt)}</div>
                 </div>
               </div>
               <button onclick="probarConexionSunat()" style="display:flex;align-items:center;gap:0.4rem;background:#EFF6FF;border:1.5px solid #BFDBFE;border-radius:9px;padding:0.45rem 0.85rem;font-size:0.78rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;">
@@ -1690,7 +1720,7 @@ async function moduloSunatConfig() {
       const btn = e.submitter || document.querySelector('#form-sunat button[type="submit"]');
       const orig = btn.innerHTML; btn.disabled = true; btn.innerHTML = 'Guardando…';
       try {
-        await db.from('configuracion_sunat').update({
+        chk(await db.from('configuracion_sunat').update({
           // Empresa
           ruc_emisor:           $('#s-ruc-emisor')?.value?.trim() || cfg.ruc_emisor,
           razon_social:         $('#s-razon-social')?.value?.trim() || cfg.razon_social,
@@ -1710,7 +1740,7 @@ async function moduloSunatConfig() {
           proveedor_api:        'migo',
           modo_produccion:      $('#s-modo-prod')?.checked || false,
           // token_dni_ruc ya no se gestiona aquí — lo gestiona el SuperAdmin globalmente
-        }).eq('hotel_id', SESSION.hotel.id);
+        }).eq('hotel_id', SESSION.hotel.id));
 
         // Recargar config Migo en memoria
         await cargarConfigSunat();
@@ -1745,11 +1775,11 @@ async function moduloSunatConfig() {
         <div style="display:grid;grid-template-columns:1fr 2fr;gap:0.75rem;">
           <div>
             <label style="${ST.label}">RUC emisor *</label>
-            <input style="${ST.input}" id="s-ruc-emisor" value="${escapeHtml(cfg.ruc_emisor||'')}" maxlength="11" placeholder="20123456789">
+            <input style="${ST.input}" id="s-ruc-emisor" value="${escapeHtml(cfg.ruc_emisor||'')}" maxlength="11" placeholder="Ej. 20123456789">
           </div>
           <div>
             <label style="${ST.label}">Razón social *</label>
-            <input style="${ST.input}" id="s-razon-social" value="${escapeHtml(cfg.razon_social||'')}" placeholder="Hotel Las Palmeras SAC">
+            <input style="${ST.input}" id="s-razon-social" value="${escapeHtml(cfg.razon_social||'')}" placeholder="Ej. Hotel Las Palmeras SAC">
           </div>
         </div>
       `;

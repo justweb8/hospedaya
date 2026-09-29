@@ -34,6 +34,342 @@ function escapeHtml(s) {
 
 function contenido() { return document.getElementById('contenido'); }
 
+// 75 → '1h 15min', 9334 → '6d 11h'
+// Fecha local (Perú) AAAA-MM-DD. toISOString() da la fecha UTC, que después
+// de las 7 p. m. ya es "mañana".
+// Ventana para imprimir reportes/tickets. Si el navegador bloquea la ventana
+// emergente (pasa cuando se abre tras cargar datos, y casi siempre en celular o
+// en la app instalada), muestra el documento en un visor dentro de la página.
+// Devuelve un objeto compatible con ventana.document.write()/close().
+function abrirVentanaImpresion(ancho = 800, alto = 900) {
+  let win = null;
+  try { win = window.open('', '_blank', `width=${ancho},height=${alto}`); } catch (_) {}
+  if (win && win.document) return win;
+
+  let html = '';
+  const visor = {
+    document: {
+      write: (h) => { html += h; },
+      open: () => { html = ''; },
+      close: () => {
+        document.getElementById('visor-impresion')?.remove();
+        const ov = document.createElement('div');
+        ov.id = 'visor-impresion';
+        ov.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(15,23,42,0.75);display:flex;flex-direction:column;';
+        ov.innerHTML = `
+          <div style="display:flex;justify-content:flex-end;gap:0.5rem;padding:0.6rem 0.75rem;background:#0F172A;">
+            <button id="visor-imp-btn" style="padding:0.55rem 1rem;background:#2563EB;color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer;">Imprimir / Guardar PDF</button>
+            <button id="visor-cerrar-btn" style="padding:0.55rem 1rem;background:white;color:#0F172A;border:none;border-radius:8px;font-weight:600;cursor:pointer;">Cerrar</button>
+          </div>
+          <iframe id="visor-iframe" title="Vista de impresión" style="flex:1;width:100%;border:none;background:white;"></iframe>`;
+        document.body.appendChild(ov);
+        const ifr = ov.querySelector('#visor-iframe');
+        // Los botones "Cerrar" del propio documento llaman window.close(): cerrar el visor
+        ifr.onload = () => { try { ifr.contentWindow.close = () => ov.remove(); } catch (_) {} };
+        ifr.srcdoc = html;
+        ov.querySelector('#visor-imp-btn').onclick = () => { try { ifr.contentWindow.focus(); ifr.contentWindow.print(); } catch (_) {} };
+        ov.querySelector('#visor-cerrar-btn').onclick = () => ov.remove();
+      },
+    },
+    focus() {}, print() { try { document.getElementById('visor-iframe')?.contentWindow.print(); } catch (_) {} },
+    close() { document.getElementById('visor-impresion')?.remove(); },
+  };
+  return visor;
+}
+
+// Registra un comprobante (boleta/factura) con numeración atómica en el
+// servidor (fn_emitir_comprobante). Queda "PENDIENTE_ENVIO"; no envía a SUNAT.
+async function emitirComprobanteServidor({ tipo, estadiaId = null, ventaId = null, total, rucRec = null, razon = null, concepto = 'Servicio' }) {
+  const t = Number(total) || 0;
+  if (tipo === 'factura' && !/^(10|15|17|20)\d{9}$/.test(String(rucRec||'').trim()))
+    throw new Error('RUC inválido para factura (11 dígitos, empieza con 10, 15, 17 o 20)');
+  const igv = Number((t - t / 1.18).toFixed(2));
+  return await rpc('fn_emitir_comprobante', {
+    p_tipo_doc: tipo, p_estadia_id: estadiaId, p_venta_directa_id: ventaId,
+    p_turno_caja_id: SESSION.turnoActivo?.id || null,
+    p_ruc_receptor: rucRec || null, p_razon_social_rec: razon || null,
+    p_total: t, p_igv: igv, p_concepto: concepto, p_celular: null, p_referencia_nc: null,
+  });
+}
+
+// ── Menú "⋮" de acciones (se abre junto al botón) ────────────────────────
+// opciones: [{ texto, accion: fn, peligro?: bool }]
+function menuAcciones(btn, opciones) {
+  document.getElementById('menu-acciones')?.remove();
+  const r = btn.getBoundingClientRect();
+  const m = document.createElement('div');
+  m.id = 'menu-acciones';
+  m.style.cssText = `position:fixed;z-index:9000;min-width:190px;background:white;border:1px solid var(--gris-borde);border-radius:10px;box-shadow:0 10px 30px rgba(15,23,42,0.15);padding:0.3rem;`;
+  opciones.filter(Boolean).forEach(o => {
+    const it = document.createElement('button');
+    it.type = 'button';
+    it.textContent = o.texto;
+    it.style.cssText = `display:block;width:100%;text-align:left;padding:0.55rem 0.75rem;border:none;background:none;border-radius:7px;font-size:0.84rem;cursor:pointer;font-family:inherit;color:${o.peligro ? 'var(--rojo)' : 'var(--texto)'};`;
+    it.onmouseenter = () => it.style.background = o.peligro ? '#FEF2F2' : 'var(--gris-bg)';
+    it.onmouseleave = () => it.style.background = 'none';
+    it.onclick = (e) => { e.stopPropagation(); m.remove(); o.accion(); };
+    m.appendChild(it);
+  });
+  document.body.appendChild(m);
+  // Posición: debajo del botón, sin salirse de la pantalla
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8)) + 'px';
+  m.style.top  = (r.bottom + h + 8 > innerHeight ? Math.max(8, r.top - h - 4) : r.bottom + 4) + 'px';
+  setTimeout(() => document.addEventListener('click', function cerrar(e) {
+    if (!m.contains(e.target)) { m.remove(); document.removeEventListener('click', cerrar); }
+  }), 0);
+}
+
+// Caja: detalle de un movimiento
+function accionesMovimiento(movId, btn) {
+  const mv = (window._cajaMov || []).find(x => x.id === movId);
+  if (!mv) return;
+  menuAcciones(btn, [{ texto: 'Ver detalle', accion: () => abrirModal('Detalle del movimiento', `
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:0.45rem 1rem;font-size:0.86rem;">
+      <span style="color:var(--texto-sub);">Fecha</span><strong>${fechaHora(mv.created_at)}</strong>
+      <span style="color:var(--texto-sub);">Tipo</span><strong style="color:${mv.tipo==='ingreso'?'var(--verde)':'var(--rojo)'};">${mv.tipo==='ingreso'?'Ingreso':'Egreso'}</strong>
+      <span style="color:var(--texto-sub);">Concepto</span><strong>${escapeHtml(mv.concepto||'—')}</strong>
+      <span style="color:var(--texto-sub);">Método</span><strong>${escapeHtml(mv.metodo_pago||'efectivo')}</strong>
+      <span style="color:var(--texto-sub);">Monto</span><strong>${soles(mv.monto)}</strong>
+      <span style="color:var(--texto-sub);">Origen</span><strong>${escapeHtml({estadia:'Hospedaje', adelanto:'Adelanto de reserva', venta_directa:'Venta / restaurante'}[mv.referencia_tipo] || mv.referencia_tipo || 'Manual')}</strong>
+    </div>
+    <p style="font-size:0.75rem;color:var(--texto-sub);margin:1rem 0 0;">Los movimientos de caja no se editan ni se borran: para corregir, registra un ingreso o egreso con el concepto "Corrección".</p>`, { ancho:'420px' }) }]);
+}
+
+// Tiendita: acciones por producto
+function accionesProducto(prodId, btn) {
+  const p = (window._productosCache || []).find(x => x.id === prodId);
+  if (!p) return;
+  const esAdmin = SESSION.perfil?.rol === 'admin';
+  menuAcciones(btn, [
+    esAdmin && { texto: 'Editar producto', accion: () => abrirFormProducto(prodId) },
+    { texto: 'Reponer stock',   accion: async () => { await abrirReposicion(); const s = document.querySelector('#modal-generico select'); if (s) { s.value = prodId; s.dispatchEvent(new Event('change', { bubbles:true })); } } },
+    { texto: 'Ver movimientos (kardex)', accion: () => verKardexProducto(prodId) },
+    esAdmin && { texto: 'Desactivar producto', peligro: true, accion: async () => {
+      if (!confirm(`¿Desactivar "${p.nombre}"? Dejará de aparecer para vender (el historial se conserva).`)) return;
+      try { chk(await db.from('productos').update({ activo:false }).eq('id', prodId)); toast('Producto desactivado', p.nombre, 'ok'); moduloTiendita(); }
+      catch (e) { toast('Error', e.message, 'error'); }
+    } },
+  ]);
+}
+
+async function verKardexProducto(prodId) {
+  const p = (window._productosCache || []).find(x => x.id === prodId) || {};
+  try {
+    const { data, error } = await db.from('movimientos_inventario')
+      .select('tipo,cantidad,motivo,precio_venta,costo_unitario,created_at')
+      .eq('producto_id', prodId).order('created_at', { ascending:false }).limit(50);
+    if (error) throw error;
+    abrirModal(`Kardex — ${escapeHtml(p.nombre||'')}`, `
+      <div style="font-size:0.8rem;color:var(--texto-sub);margin-bottom:0.6rem;">Stock actual: <strong style="color:var(--texto);">${p.stock_actual ?? '—'}</strong> · últimos 50 movimientos</div>
+      <div style="max-height:380px;overflow-y:auto;">
+        ${(data||[]).length ? data.map(m => `
+          <div style="display:flex;justify-content:space-between;gap:0.5rem;padding:0.5rem 0;border-bottom:1px solid var(--gris-borde);font-size:0.83rem;">
+            <div><div style="font-weight:600;">${escapeHtml(m.motivo||'—')}</div><div style="font-size:0.72rem;color:var(--texto-sub);">${fechaHora(m.created_at)}</div></div>
+            <strong style="color:${m.tipo==='entrada'?'var(--verde)':'var(--rojo)'};white-space:nowrap;">${m.tipo==='entrada'?'+':'−'}${m.cantidad}</strong>
+          </div>`).join('') : '<div style="text-align:center;color:var(--texto-sub);padding:1.5rem;">Sin movimientos</div>'}
+      </div>`, { ancho:'440px' });
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
+// Personal: acciones por empleado
+function accionesEmpleado(perfilId, btn) {
+  const p = (window._personalCache || []).find(x => x.id === perfilId);
+  if (!p) return;
+  const activo = p.activo !== false;
+  menuAcciones(btn, [
+    p.rol !== 'admin' && { texto: 'Restablecer contraseña', accion: () => abrirResetPass(p.user_id, p.nombre_completo || '') },
+    p.rol !== 'admin' && { texto: activo ? 'Desactivar acceso' : 'Reactivar acceso', peligro: activo, accion: async () => {
+      if (!confirm(activo ? `¿Desactivar a ${p.nombre_completo}? Ya no podrá entrar al sistema.` : `¿Reactivar a ${p.nombre_completo}?`)) return;
+      try { chk(await db.from('perfiles_usuarios').update({ activo: !activo }).eq('id', perfilId)); toast(activo ? 'Acceso desactivado' : 'Acceso reactivado', p.nombre_completo, 'ok'); moduloPersonal(); }
+      catch (e) { toast('Error', e.message, 'error'); }
+    } },
+    p.rol === 'admin' && { texto: 'Es el administrador (sin acciones)', accion: () => {} },
+  ]);
+}
+
+// Personal (celular): filtro por rol
+function abrirFiltroPersonalMobile() {
+  const roles = [['', 'Todos'], ['admin','Administrador'], ['recepcion','Recepción'], ['limpieza','Limpieza'], ['cocina','Cocina'], ['restaurante','Restaurante']];
+  abrirModal('Filtrar por rol', `<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+    ${roles.map(([v,l]) => `<button type="button" onclick="document.getElementById('pers-buscar').value='${v}';filtrarPersonalMobile('${v}');cerrarModal();" style="${ST.btnSec};width:auto;padding:0.5rem 0.9rem;">${l}</button>`).join('')}
+  </div>`, { ancho:'360px' });
+}
+
+// ── Paginación real para todas las tablas/listas ─────────────────────────
+// Las pantallas traen una barra "Mostrando… ‹ 1 › [10 por página]" que era
+// solo decorativa. Esto la conecta: pagina las filas de la tabla (o las
+// tarjetas de la lista) que está justo encima, y se reinicia al filtrar.
+function activarPaginaciones() {
+  const cont = document.getElementById('contenido');
+  if (!cont) return;
+  cont.querySelectorAll('span').forEach(sp => {
+    if (!/^Mostrando\b/.test(sp.textContent.trim())) return;
+    const bar = sp.parentElement;
+    if (!bar || bar.dataset.pagActiva) return;
+    const botones = [...bar.querySelectorAll('button')];
+    const prev = botones.find(b => b.innerHTML.includes('15 18 9 12 15 6'));
+    const next = botones.find(b => b.innerHTML.includes('9 18 15 12 9 6'));
+    if (!prev || !next) return;
+
+    // ¿Qué se pagina? La tabla del mismo bloque o la lista inmediatamente anterior
+    const tbody = bar.parentElement?.querySelector('tbody');
+    const lista = tbody || bar.previousElementSibling;
+    if (!lista) return;
+    const esFila = el => !(el.tagName === 'TR' && el.querySelector('td[colspan]')); // excluye "sin resultados"
+
+    const sel = bar.querySelector('select');
+    let porPagina = 10, pagina = 1;
+    const leerPorPagina = () => { const m = (sel?.selectedOptions[0]?.text || '').match(/(\d+)/); porPagina = m ? parseInt(m[1]) : 10; };
+    leerPorPagina();
+
+    // Contenedor de números de página (reemplaza el "1" fijo)
+    const numViejo = botones.find(b => b.textContent.trim() === '1');
+    const nums = document.createElement('span');
+    nums.style.cssText = 'display:inline-flex;gap:0.3rem;';
+    if (numViejo) numViejo.replaceWith(nums); else next.before(nums);
+    const estiloNum = numViejo ? numViejo.getAttribute('style') : 'width:30px;height:30px;border-radius:8px;font-weight:700;cursor:pointer;';
+
+    const pintar = () => {
+      // Filas descartadas por un filtro (data-oculto="1") quedan fuera de la paginación
+      const todos = [...lista.children].filter(esFila);
+      todos.forEach(el => { if (el.dataset.oculto === '1') el.style.display = 'none'; });
+      const items = todos.filter(el => el.dataset.oculto !== '1');
+      const total = items.length, paginas = Math.max(1, Math.ceil(total / porPagina));
+      pagina = Math.min(Math.max(1, pagina), paginas);
+      const ini = (pagina - 1) * porPagina;
+      items.forEach((el, i) => { el.style.display = (i >= ini && i < ini + porPagina) ? '' : 'none'; });
+      sp.textContent = total ? `Mostrando ${ini + 1}–${Math.min(ini + porPagina, total)} de ${total}` : 'Sin registros';
+      prev.disabled = pagina <= 1; next.disabled = pagina >= paginas;
+      prev.style.opacity = prev.disabled ? '0.4' : ''; next.style.opacity = next.disabled ? '0.4' : '';
+      // hasta 5 números alrededor de la página actual
+      const desde = Math.max(1, Math.min(pagina - 2, paginas - 4)), hasta = Math.min(paginas, desde + 4);
+      nums.innerHTML = '';
+      for (let p = desde; p <= hasta; p++) {
+        const b = document.createElement('button');
+        b.type = 'button'; b.textContent = p; b.setAttribute('style', estiloNum);
+        const activo = p === pagina;
+        b.style.background = activo ? 'var(--azul)' : 'white';
+        b.style.color = activo ? 'white' : 'var(--texto-sub)';
+        b.style.border = activo ? 'none' : '1px solid var(--gris-borde)';
+        b.onclick = () => { pagina = p; pintar(); };
+        nums.appendChild(b);
+      }
+    };
+    prev.onclick = () => { pagina--; pintar(); };
+    next.onclick = () => { pagina++; pintar(); };
+    if (sel) sel.onchange = () => { leerPorPagina(); pagina = 1; pintar(); };
+    // Si la lista se vuelve a pintar (filtros, búsqueda), volver a la página 1
+    new MutationObserver(muts => {
+      if (muts.some(m => m.type === 'childList')) { pagina = 1; pintar(); }
+    }).observe(lista, { childList: true });
+    lista._repintarPaginacion = () => { pagina = 1; pintar(); };
+    bar.dataset.pagActiva = '1';
+    pintar();
+  });
+}
+
+// Filtra filas sin volver a pintar la tabla: marca las que no cumplen y
+// avisa a la paginación (si la tabla no tiene paginación, solo oculta).
+function aplicarFiltroFilas(selector, cumple) {
+  const filas = [...document.querySelectorAll(selector)];
+  filas.forEach(el => {
+    const ok = cumple(el);
+    el.dataset.oculto = ok ? '' : '1';
+    el.style.display = ok ? '' : 'none';
+  });
+  const lista = filas[0]?.parentElement;
+  if (lista?._repintarPaginacion) lista._repintarPaginacion();
+}
+(function iniciarPaginacionAuto() {
+  const cont = document.getElementById('contenido');
+  if (!cont) { document.addEventListener('DOMContentLoaded', iniciarPaginacionAuto); return; }
+  let t = null;
+  new MutationObserver(() => { clearTimeout(t); t = setTimeout(activarPaginaciones, 60); })
+    .observe(cont, { childList: true, subtree: true });
+})();
+
+function exportarPersonalExcel() {
+  const lista = window._personalCache || [];
+  if (!lista.length) { toast('Sin datos', 'No hay personal para exportar', 'warn'); return; }
+  exportarExcel(`personal_${SESSION.hotel?.nombre_comercial||'hotel'}_${fechaLocalISO()}`,
+    ['Nombre', 'Rol', 'Estado', 'Registrado'],
+    lista.map(p => [p.nombre_completo || '', rolLabelPersonal(p.rol), p.activo === false ? 'Inactivo' : 'Activo', fechaCorta(p.created_at)]),
+    'Personal');
+}
+
+// Guía de permisos generada desde PERMISOS_ROL (siempre coincide con lo real)
+function verGuiaPermisos() {
+  const NOMBRES = { dashboard:'Dashboard', rack:'Habitaciones', reservas:'Reservas', calendario:'Calendario', huespedes:'Huéspedes',
+    caja:'Caja / Turno', tiendita:'Tiendita', facturacion:'Facturación', restaurante:'Restaurante', cocina:'Cocina',
+    limpieza:'Estado de habitaciones', reportes:'Reportes', personal:'Personal', 'habitacion-config':'Config. habitaciones',
+    suscripcion:'Suscripción', 'sunat-config':'Config. SUNAT' };
+  const filas = Object.entries(PERMISOS_ROL).map(([rol, mods]) => `
+    <div style="padding:0.75rem 0;border-bottom:1px solid var(--gris-borde);">
+      <div style="font-weight:700;margin-bottom:0.35rem;">${rolLabelPersonal(rol)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:0.35rem;">
+        ${mods.map(m => `<span style="font-size:0.72rem;background:#EFF6FF;color:#1D4ED8;padding:0.15rem 0.5rem;border-radius:999px;">${NOMBRES[m]||m}${MODULOS_PRO.includes(m)?' (PRO)':''}</span>`).join('')}
+      </div>
+    </div>`).join('');
+  abrirModal('Guía de permisos por rol', `
+    <p style="font-size:0.8rem;color:var(--texto-sub);margin:0 0 0.5rem;">Cada empleado solo ve y puede abrir las secciones de su rol. Las marcadas PRO requieren plan PRO.</p>
+    ${filas}`, { ancho:'520px' });
+}
+
+// Buscador y notificaciones: ir a Habitaciones y abrir directamente esa habitación
+function irAHabitacion(habId) {
+  navegarA('rack');
+  if (habId && puedeVerModulo('rack')) abrirHabitacion(habId);
+}
+
+// DNI: 8 dígitos · CE / Pasaporte: 6 a 12 letras o números. Devuelve el error o ''.
+function validarDocumento(tipo, doc) {
+  doc = String(doc || '').trim();
+  if (!doc) return 'Ingresa el número de documento';
+  if ((tipo || 'DNI') === 'DNI') return /^\d{8}$/.test(doc) ? '' : 'El DNI debe tener 8 dígitos';
+  return /^[A-Za-z0-9]{6,12}$/.test(doc) ? '' : 'Debe tener entre 6 y 12 letras o números';
+}
+
+// Reservas: clic en ENTRADA / SALIDA / ADELANTO ordena (otro clic invierte)
+function ordenarReservas(campo) {
+  const o = window._resOrden;
+  window._resOrden = { campo, asc: o?.campo === campo ? !o.asc : true };
+  filtrarReservas();
+}
+
+// Texto extra para buscar por fecha como la escribe una persona: "01/10", "1 oct", "01-oct"
+function textoFechaBusqueda(iso) {
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d)) return '';
+  const dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0');
+  const mes = d.toLocaleDateString('es-PE', { month:'short' }).replace('.', '');
+  return `${dd}/${mm} ${dd}/${mm}/${d.getFullYear()} ${d.getDate()}/${d.getMonth()+1} ${dd}-${mes} ${d.getDate()} ${mes} ${dd} ${mes}`;
+}
+
+// "¿Necesitas ayuda? Contáctanos" (barra lateral): WhatsApp al soporte de HospedaYa
+function abrirAyudaSoporte() {
+  const msg = `Hola, necesito ayuda con HospedaYa. Hotel: ${(SESSION.hotel?.nombre_comercial || SESSION.hotel?.razon_social || '-').trim()} · Usuario: ${SESSION.perfil?.nombre_completo || '-'} (${rolLabelPersonal(SESSION.perfil?.rol) || '-'})`;
+  window.open(`https://wa.me/${WA_SUPERADMIN}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
+}
+
+function rolLabelPersonal(rol) {
+  return ({ admin:'Administrador', recepcion:'Recepción', limpieza:'Limpieza', cocina:'Cocina', restaurante:'Restaurante' })[rol] || (rol || '');
+}
+
+function fechaLocalISO(d = new Date()) {
+  if (d === '' || d == null) return '';
+  const x = new Date(d), p = n => String(n).padStart(2,'0');
+  if (isNaN(x)) return '';
+  return x.getFullYear() + '-' + p(x.getMonth()+1) + '-' + p(x.getDate());
+}
+
+function fmtMinutos(m) {
+  m = Math.max(0, Math.floor(Number(m)||0));
+  if (m < 60) return m + 'min';
+  if (m < 1440) return Math.floor(m/60) + 'h ' + (m%60) + 'min';
+  return Math.floor(m/1440) + 'd ' + Math.floor((m%1440)/60) + 'h';
+}
+
 function skeleton() {
   contenido().innerHTML = `
     <div style="display:flex;align-items:center;justify-content:center;height:240px;color:var(--texto-sub);gap:0.75rem;">
@@ -110,7 +446,41 @@ const ST = {
 // ════════════════════════════════════════════════════════════
 //  ROUTER DE MÓDULOS
 // ════════════════════════════════════════════════════════════
+// ── Permisos por rol (única fuente de verdad para menú y acceso) ─────────
+// Los módulos marcados como PRO solo aparecen si el hotel tiene plan PRO.
+const PERMISOS_ROL = {
+  admin:       ['dashboard','rack','reservas','calendario','huespedes','caja','tiendita','facturacion',
+                'restaurante','cocina','reportes','personal','habitacion-config','suscripcion','sunat-config','limpieza'],
+  recepcion:   ['dashboard','rack','reservas','calendario','huespedes','caja','tiendita','facturacion'],
+  // Sin Dashboard: muestra caja, ingresos y huéspedes, que no les corresponden
+  restaurante: ['restaurante','caja'],   // caja propia: cobra mesas con su turno y cierre ciego
+  cocina:      ['cocina'],
+  limpieza:    ['limpieza'],
+};
+const MODULOS_PRO = ['restaurante','cocina'];
+
+function modulosPermitidos() {
+  if (SESSION.perfil?.es_superadmin) return ['sa-dashboard','sa-hoteles','sa-suscripciones'];
+  const esPro = (SESSION.hotel?.plan || 'basico') === 'pro';
+  return (PERMISOS_ROL[SESSION.perfil?.rol] || ['dashboard'])
+    .filter(m => esPro || !MODULOS_PRO.includes(m));
+}
+
+function puedeVerModulo(modulo) {
+  if (modulo === 'mas-mobile') return true;
+  return modulosPermitidos().includes(modulo);
+}
+
 function renderModulo(modulo) {
+  // Candado: aunque se llame directo (menú "Más", notificaciones, consola),
+  // un rol no puede abrir módulos que no le corresponden.
+  if (!puedeVerModulo(modulo)) {
+    const destino = modulosPermitidos()[0] || 'dashboard';
+    if (typeof toast === 'function') toast('Sin acceso', 'Tu rol no tiene permiso para esa sección', 'warn');
+    if (typeof moduloActual !== 'undefined') moduloActual = destino;
+    document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('activo', b.dataset.modulo === destino));
+    modulo = destino;
+  }
   switch (modulo) {
     // SuperAdmin
     case 'sa-dashboard':     return moduloSaDashboard();
@@ -215,10 +585,7 @@ async function moduloSaDashboard() {
             <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Panel de control de HospedaYa</p>
           </div>
         </div>
-        <button onclick="abrirFormAltaHotel()" style="width:auto;padding:0.65rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);display:flex;align-items:center;gap:0.5rem;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Registrar hotel
-        </button>
+        <!-- "Registrar hotel" vive solo en la sección Hoteles -->
       </div>
 
       <!-- 6 tarjetas -->
@@ -280,7 +647,7 @@ function saKpi(label, valor, color, bg, icono) {
 async function renderCardConfigGlobal() {
   try {
     const { data: cfg } = await db.from('configuracion_global')
-      .select('token_dni_ruc, proveedor_dni_ruc, token_factural, fl_empresa_id, fl_endpoint, proveedor_emision, actualizado_el')
+      .select('token_dni_ruc, proveedor_dni_ruc, token_factural, fl_endpoint, proveedor_emision, actualizado_el')
       .eq('id', 1).single();
 
     const tieneTokenDNI = !!(cfg?.token_dni_ruc);
@@ -461,9 +828,13 @@ async function probarTokenGlobal() {
     if (error) throw new Error(error.message);
     if (data?.error && data.error.includes('no configurado')) {
       toast('⚠️ Token no configurado', 'Guarda un token primero', 'warn');
+    } else if (data?.error && [401, 403].includes(Number(data.status))) {
+      toast('❌ Token rechazado', 'El proveedor no acepta el token (' + data.error + ')', 'error', 8000);
+    } else if (data?.error && Number(data.status) >= 500) {
+      toast('⚠️ Proveedor con problemas', data.error, 'warn', 8000);
     } else if (data?.error) {
-      // Si hay error del proveedor pero la RPC funcionó = token conecta OK
-      toast('✅ Conexión OK', 'La RPC responde. El proveedor devuelve: ' + data.error, 'ok');
+      // DNI de prueba inexistente: el proveedor respondió, así que el token funciona
+      toast('✅ Conexión OK', 'El proveedor respondió (' + data.error + ')', 'ok');
     } else {
       toast('✅ Token activo', 'El servicio de identidad responde correctamente', 'ok');
     }
@@ -571,7 +942,12 @@ async function abrirGestionHotel(hotelId) {
     const dias = susc?.dias_restantes ?? 0;
 
     // Cargar cuota CPE del hotel
-    const { data: cuotaData } = await db.rpc('fn_verificar_cuota_cpe', { p_hotel_id: hotelId }).catch(()=>({data:null}));
+    // (db.rpc(...) no expone .catch() directamente: hay que await-earlo y envolverlo)
+    let cuotaData = null;
+    try {
+      const rCuota = await db.rpc('fn_verificar_cuota_cpe', { p_hotel_id: hotelId });
+      cuotaData = rCuota.data;
+    } catch (_) {}
     const cuota = cuotaData || { limite:150, emitidos:0, disponibles:150, puede_emitir:true };
     const pctCuota = Math.min(100, Math.round((cuota.emitidos/cuota.limite)*100));
     const colorCuota = pctCuota>=90?'#DC2626':pctCuota>=70?'#EA580C':'#16A34A';
@@ -632,7 +1008,7 @@ async function abrirGestionHotel(hotelId) {
       </div>
 
       <!-- 6. Cuota de comprobantes CPE -->
-      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--azul);margin-bottom:0.65rem;">6 · Cuota de comprobantes (CPE / mes)</div>
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--azul);margin-bottom:0.65rem;">5 · Cuota de comprobantes (CPE / mes)</div>
       <div style="background:var(--gris-bg);border-radius:10px;padding:0.85rem 1rem;margin-bottom:0.75rem;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
           <span style="font-size:0.82rem;font-weight:600;">Uso del mes</span>
@@ -664,7 +1040,7 @@ async function abrirGestionHotel(hotelId) {
       </div>
 
       <!-- 7. Estado del hotel -->
-      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--rojo);margin-bottom:0.65rem;">7 · Estado del hotel</div>
+      <div style="font-size:0.72rem;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--rojo);margin-bottom:0.65rem;">6 · Estado del hotel</div>
       <div style="display:flex;gap:0.5rem;">
         ${susc?.estado==='suspendido'
           ?`<button onclick="cambiarEstadoHotel('${hotelId}','activo')" style="flex:1;padding:0.65rem;background:#16A34A;color:white;border:none;border-radius:9px;font-size:0.85rem;font-weight:600;cursor:pointer;">✅ Reactivar hotel</button>`
@@ -693,7 +1069,7 @@ async function abrirGestionHotel(hotelId) {
       try {
         const r=await rpc('fn_renovar_suscripcion',{ p_hotel_id:hotelId, p_meses:parseInt(btn.dataset.meses), p_monto:monto, p_metodo_pago:$('#renov-metodo').value, p_codigo_operacion:$('#renov-codigo').value||null });
         cerrarModal(); toast('✅ Renovado',`Vence: ${fechaCorta(r.nueva_fecha_vencimiento)}`,'ok');
-        moduloSaHoteles();
+        renderModulo(moduloActual || 'sa-hoteles');   // vuelve a Hoteles o Suscripciones, según desde dónde se renovó
       } catch(err){ toast('Error',err.message,'error'); btn.disabled=false; btn.textContent='Renovar'; }
     });
 
@@ -712,8 +1088,8 @@ async function ampliarCuotaCPE(hotelId, creditos) {
 }
 
 async function guardarLimiteCuota(hotelId) {
-  const limite = parseInt(document.getElementById('cuota-limite')?.value) || 150;
-  if (limite < 1) { toast('Límite inválido','','warn'); return; }
+  const limite = parseInt(document.getElementById('cuota-limite')?.value);   // antes: 0 o vacío guardaba 150 sin avisar
+  if (isNaN(limite) || limite < 1) { toast('Límite inválido', 'Debe ser 1 o más comprobantes por mes', 'warn'); return; }
   try {
     const { error } = await db.from('hoteles')
       .update({ limite_cpe_mes: limite }).eq('id', hotelId);
@@ -725,7 +1101,7 @@ async function guardarLimiteCuota(hotelId) {
 
 async function cambiarPlanHotel(hotelId, plan, btn) {
   try {
-    await db.from('hoteles').update({ plan }).eq('id', hotelId);
+    chk(await db.from('hoteles').update({ plan }).eq('id', hotelId));
     cerrarModal();
     toast(`✅ Plan cambiado a ${plan.toUpperCase()}`, plan==='pro'?'Ya tiene acceso a Restaurante y Cocina':'Plan básico activado', 'ok');
     moduloSaHoteles();
@@ -830,6 +1206,11 @@ function abrirFormAltaHotel() {
     const fd = new FormData(e.target);
     const g = k => fd.get(k) || '';
     const errEl = $('#alta-error'); errEl.style.display='none';
+    // Validaciones (los 3 hoteles actuales tienen RUC mal escritos: 8, 10 dígitos y con "+")
+    const faltaDato = msg => { errEl.textContent = msg; errEl.style.display = 'block'; };
+    if (!/^(10|15|17|20)\d{9}$/.test(g('ruc').trim())) return faltaDato('RUC inválido: 11 dígitos y empieza con 10, 15, 17 o 20.');
+    if (!(parseFloat(g('monto_cobrado')) > 0)) return faltaDato('Ingresa el monto cobrado (mayor a 0).');
+    if (g('password_dueno').length < 6) return faltaDato('La contraseña del dueño debe tener al menos 6 caracteres.');
     const btn = $('#btn-alta-submit'); btn.disabled=true; btn.textContent='Registrando…';
     try {
       await rpc('fn_registrar_hotel', {
@@ -877,6 +1258,10 @@ async function moduloSaSuscripciones() {
             <p style="font-size:0.83rem;color:var(--texto-sub);margin:0.2rem 0 0;">Historial completo de pagos cobrados</p>
           </div>
         </div>
+        <button onclick="abrirRenovarDesdeSuscripciones()" style="width:auto;padding:0.65rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);display:flex;align-items:center;gap:0.5rem;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Renovar suscripción
+        </button>
       </div>
 
       <!-- KPIs -->
@@ -921,6 +1306,21 @@ async function moduloSaSuscripciones() {
       </div>
     `;
   } catch(err){ contenido().innerHTML = errorBox('No se pudo cargar el historial', err.message); }
+}
+
+// Suscripciones › "Renovar suscripción": elegir hotel y abrir su gestión (renovar/plan/prórroga)
+async function abrirRenovarDesdeSuscripciones() {
+  try {
+    const hoteles = await getHoteles();
+    abrirModal('Renovar suscripción', `
+      <div style="${ST.grupo}"><label style="${ST.label}">Hotel</label>
+        <select style="${ST.input}" id="renov-hotel-sel">
+          ${hoteles.map(h => `<option value="${h.id}">${escapeHtml(h.nombre_comercial)} · vence ${fechaCorta(h.fecha_vencimiento)}</option>`).join('')}
+        </select>
+      </div>
+      <button style="${ST.btnPri}" onclick="abrirGestionHotel(document.getElementById('renov-hotel-sel').value)">Continuar</button>
+    `, { ancho:'420px' });
+  } catch (err) { toast('Error', err.message, 'error'); }
 }
 
 //  HOTEL › CAJA POR TURNOS (arqueo ciego, solo efectivo)
@@ -973,7 +1373,7 @@ function renderCajaCerrada() {
       </div>
       <div style="${ST.grupo}">
         <label style="${ST.label}">Fondo inicial (efectivo físico) *</label>
-        <input style="${ST.input};font-size:1.2rem;font-weight:600;text-align:center;" id="caja-fondo" type="number" step="0.01" placeholder="100.00" autofocus>
+        <input style="${ST.input};font-size:1.2rem;font-weight:600;text-align:center;" id="caja-fondo" type="number" step="0.01" min="0" inputmode="decimal" placeholder="Escribe el monto (ej. 100)" autofocus>
       </div>
       <button style="width:100%;padding:0.85rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.95rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;box-shadow:0 4px 14px rgba(26,63,166,0.3);" id="btn-abrir-caja">
         <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" style="width:18px;height:18px;"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
@@ -1030,11 +1430,18 @@ async function renderCajaAbierta() {
       res.egresos += Number(m.monto);
     }
   });
-  const saldoCaja = Number(turno.fondo_inicial) + totalIngresos - res.egresos;
+  // Efectivo físico que debería haber en el cajón (Yape/Plin/transferencias no entran al cajón)
+  const egresosEfectivo = (movs||[]).filter(m => m.tipo==='egreso' && (m.metodo_pago||'efectivo')==='efectivo')
+    .reduce((s,m) => s + Number(m.monto), 0);
+  const saldoCaja = Number(turno.fondo_inicial) + (res.efectivo||0) - egresosEfectivo;
+  // Arqueo ciego: solo el administrador ve el efectivo esperado antes del cierre
+  const verEfectivo = SESSION.perfil?.rol === 'admin';
+  const efectivoVisible = verEfectivo ? (res.efectivo||0) : null;
 
   // Fechas del turno
   const desde = new Date(turno.apertura_at);
-  const desdeStr = `Desde ${desde.getDate()} de ${desde.toLocaleString('es-PE',{month:'short'})}. ${desde.getFullYear()}, ${desde.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'})}`;
+  const mesCorto = desde.toLocaleString('es-PE',{month:'short'}).replace(/\.$/, '');
+  const desdeStr = `Desde ${desde.getDate()} de ${mesCorto}. ${desde.getFullYear()}, ${desde.toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'})}`;
 
   // Métodos con íconos y colores
   const metodos = [
@@ -1087,7 +1494,7 @@ async function renderCajaAbierta() {
 
       <!-- Tarjetas de métodos — 2 columnas arriba + 3 abajo -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:0.6rem;">
-        ${cajaTarjetaMobile('Efectivo (ingresos)', res.efectivo||0, '#16A34A', '#F0FDF4',
+        ${cajaTarjetaMobile('Efectivo (ingresos)', efectivoVisible, '#16A34A', '#F0FDF4',
           '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
           (movs||[]).filter(x=>x.metodo_pago==='efectivo'&&x.tipo==='ingreso').length)}
         ${cajaTarjetaMobile('Yape', res.yape||0, '#7C3AED', '#F5F3FF',
@@ -1203,7 +1610,7 @@ async function renderCajaAbierta() {
 
       <!-- 5 tarjetas por método (ancho completo) -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
-        ${metodos.map(m => cajaTarjeta(m.label, res[m.key]||0, m.color, m.bg, m.icon,
+        ${metodos.map(m => cajaTarjeta(m.label, m.key==='efectivo' ? efectivoVisible : (res[m.key]||0), m.color, m.bg, m.icon,
           (movs||[]).filter(x => m.key==='egresos' ? x.tipo==='egreso' : x.metodo_pago===m.key && x.tipo==='ingreso').length
         )).join('')}
       </div>
@@ -1286,8 +1693,11 @@ async function renderCajaAbierta() {
           ${filaResumen('Total egresos', soles(res.egresos), '#DC2626')}
           <div style="height:1px;background:var(--gris-borde);margin:0.85rem 0;"></div>
           <div style="background:var(--gris-bg);border-radius:12px;padding:1rem;text-align:center;margin-bottom:1rem;">
-            <div style="font-size:0.75rem;color:var(--texto-sub);margin-bottom:0.3rem;font-weight:500;">Saldo en caja</div>
-            <div style="font-size:1.75rem;font-weight:700;color:var(--texto);">${soles(saldoCaja)}</div>
+            <div style="font-size:0.75rem;color:var(--texto-sub);margin-bottom:0.3rem;font-weight:500;">Efectivo esperado en caja</div>
+            ${verEfectivo
+              ? `<div style="font-size:1.75rem;font-weight:700;color:var(--texto);">${soles(saldoCaja)}</div>
+                 <div style="font-size:0.7rem;color:var(--texto-sub);margin-top:0.2rem;">Fondo + ingresos en efectivo − egresos en efectivo</div>`
+              : `<div style="font-size:0.85rem;font-weight:600;color:var(--texto-sub);">Se revela al cerrar el turno</div>`}
           </div>
           <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:12px;padding:0.85rem;display:flex;align-items:flex-start;gap:0.65rem;">
             <div style="width:28px;height:28px;border-radius:50%;background:#16A34A;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -1316,7 +1726,7 @@ function cajaTarjetaMobile(label, valor, color, bg, icon, movCount) {
         <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;opacity:0.7;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
       </div>
       <div style="font-size:0.65rem;color:var(--texto-sub);margin-bottom:0.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
-      <div style="font-size:1.1rem;font-weight:700;color:${color};line-height:1;">${soles(valor)}</div>
+      <div style="font-size:1.1rem;font-weight:700;color:${color};line-height:1;">${valor===null?'<span title="Oculto hasta el cierre del turno">••••</span>':soles(valor)}</div>
       <div style="font-size:0.65rem;color:var(--texto-sub);margin-top:0.15rem;">${movCount} movimiento${movCount!==1?'s':''}</div>
     </div>`;
 }
@@ -1375,7 +1785,7 @@ function cajaTarjeta(label, valor, color, bg, icon, movCount) {
         <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" style="width:17px;height:17px;opacity:0.65;margin-top:2px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
       </div>
       <div style="font-size:0.73rem;color:var(--texto-sub);margin-bottom:0.25rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
-      <div style="font-size:1.25rem;font-weight:700;color:${color==='#DC2626'?'var(--rojo)':color==='#16A34A'?'var(--verde)':color};line-height:1.1;">${soles(valor)}</div>
+      <div style="font-size:1.25rem;font-weight:700;color:${color==='#DC2626'?'var(--rojo)':color==='#16A34A'?'var(--verde)':color};line-height:1.1;">${valor===null?'<span title="Oculto hasta el cierre del turno">••••</span>':soles(valor)}</div>
       <div style="font-size:0.7rem;color:var(--texto-sub);margin-top:0.2rem;">${movCount} movimiento${movCount!==1?'s':''}</div>
     </div>`;
 }
@@ -1455,7 +1865,7 @@ function renderFilasCaja(movs) {
           </div>
         </td>
         <td style="${tdCss()};text-align:right;">
-          <button style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+          <button title="Acciones" onclick="accionesMovimiento('${m.id}', this)" style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);margin-left:auto;" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
           </button>
         </td>
@@ -1489,7 +1899,7 @@ function descargarReporteCaja() {
   const hotel = SESSION.hotel;
   const cajero = SESSION.perfil?.nombre_completo || '—';
 
-  const res = { efectivo:0, yape:0, plin:0, transferencia:0, egresos:0 };
+  const res = { efectivo:0, yape:0, plin:0, transferencia:0, egresos:0, egresosEfectivo:0 };
   let totalIngresos = 0;
   movs.forEach(m => {
     if (m.tipo === 'ingreso') {
@@ -1498,9 +1908,13 @@ function descargarReporteCaja() {
       totalIngresos += Number(m.monto);
     } else if (m.tipo === 'egreso') {
       res.egresos += Number(m.monto);
+      if ((m.metodo_pago || 'efectivo') === 'efectivo') res.egresosEfectivo += Number(m.monto);
     }
   });
-  const saldo   = Number(turno.fondo_inicial) + totalIngresos - res.egresos;
+  // Efectivo que debe haber en el cajón (Yape/Plin/transferencia no entran al cajón).
+  // Cierre ciego: solo el administrador lo ve mientras el turno está abierto.
+  const saldo    = Number(turno.fondo_inicial) + res.efectivo - res.egresosEfectivo;
+  const verSaldo = SESSION.perfil?.rol === 'admin' || turno.estado !== 'abierto';
   const ahora   = new Date();
   const apertura = turno.apertura_at ? new Date(turno.apertura_at).toLocaleString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
   const ahoraStr = ahora.toLocaleString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'});
@@ -1517,7 +1931,7 @@ function descargarReporteCaja() {
     </tr>`;
   }).join('');
 
-  const ventana = window.open('','_blank','width=800,height=900');
+  const ventana = abrirVentanaImpresion(800, 900);
   ventana.document.write(`<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -1596,13 +2010,13 @@ function descargarReporteCaja() {
       </div>
     </div>
     <div class="saldo-box">
-      <span class="lbl">💰 Saldo en caja</span>
-      <span class="val">S/ ${saldo.toFixed(2)}</span>
+      <span class="lbl">Efectivo esperado en caja</span>
+      <span class="val">${verSaldo ? 'S/ ' + saldo.toFixed(2) : 'Se revela al cerrar el turno'}</span>
     </div>
 
     <div class="seccion">Ingresos por método de pago</div>
     <div class="metodos">
-      <div class="met-card"><span class="met-lbl">💵 Efectivo</span><span class="met-val">S/ ${(res.efectivo||0).toFixed(2)}</span></div>
+      <div class="met-card"><span class="met-lbl">💵 Efectivo</span><span class="met-val">${verSaldo ? 'S/ ' + (res.efectivo||0).toFixed(2) : '••••'}</span></div>
       <div class="met-card"><span class="met-lbl">📱 Yape</span><span class="met-val">S/ ${(res.yape||0).toFixed(2)}</span></div>
       <div class="met-card"><span class="met-lbl">📲 Plin</span><span class="met-val">S/ ${(res.plin||0).toFixed(2)}</span></div>
       <div class="met-card"><span class="met-lbl">🏦 Transferencia</span><span class="met-val">S/ ${(res.transferencia||0).toFixed(2)}</span></div>
@@ -1676,6 +2090,21 @@ function abrirFormMovimiento(tipo) {
     const monto = parseFloat(f.elements['monto'].value);
     if (isNaN(monto) || monto <= 0) { toast('Monto inválido', '', 'warn'); return; }
     try {
+      // Un gasto en efectivo no puede ser mayor que el efectivo que hay en caja
+      if (esEgreso && f.elements['metodo_pago'].value === 'efectivo') {
+        const { data: movs } = await db.from('movimientos_caja')
+          .select('tipo,monto,metodo_pago').eq('turno_caja_id', SESSION.turnoActivo.id);
+        const disponible = Number(SESSION.turnoActivo.fondo_inicial || 0) + (movs || [])
+          .filter(m => (m.metodo_pago || 'efectivo') === 'efectivo')
+          .reduce((s, m) => s + (m.tipo === 'egreso' ? -1 : 1) * Number(m.monto || 0), 0);
+        if (monto > disponible + 0.001) {
+          // Al no-admin no se le dice cuánto hay (el cierre es ciego)
+          toast('No hay suficiente efectivo', SESSION.perfil?.rol === 'admin'
+            ? `En caja debería haber ${soles(Math.max(0, disponible))}`
+            : 'El gasto supera el efectivo del turno', 'warn');
+          return;
+        }
+      }
       const { error } = await db.from('movimientos_caja').insert({
         hotel_id: SESSION.hotel.id,
         turno_caja_id: SESSION.turnoActivo.id,
@@ -1723,41 +2152,18 @@ function abrirCierreCiego() {
     btn.disabled = true; btn.textContent = 'Calculando…';
 
     try {
-      const turno = SESSION.turnoActivo;
-
-      // 1. Calcular efectivo esperado INTERNAMENTE (solo efectivo)
-      const { data: movs, error: e1 } = await db
-        .from('movimientos_caja')
-        .select('tipo, monto, metodo_pago')
-        .eq('turno_caja_id', turno.id);
-      if (e1) throw e1;
-
-      let ingresosEfectivo = 0, egresosEfectivo = 0;
-      (movs || []).forEach(m => {
-        if (m.tipo === 'ingreso' && (m.metodo_pago || 'efectivo') === 'efectivo') ingresosEfectivo += Number(m.monto);
-        if (m.tipo === 'egreso'  && (m.metodo_pago || 'efectivo') === 'efectivo') egresosEfectivo  += Number(m.monto);
+      // El "esperado" lo calcula el SERVIDOR (fn_cerrar_turno): el
+      // cajero no puede leerlo ni falsearlo antes de declarar (arqueo ciego real).
+      const r = await rpc('fn_cerrar_turno', {
+        p_declarado: declarado,
+        p_notas: $('#cierre-notas').value || null,
       });
 
-      const esperado   = Number(turno.fondo_inicial) + ingresosEfectivo - egresosEfectivo;
-      const diferencia = declarado - esperado;
-
-      // 2. Registrar el cierre inmutable
-      const { error: e2 } = await db.from('turnos_caja').update({
-        estado: 'cerrado',
-        efectivo_esperado: esperado,
-        efectivo_declarado: declarado,
-        diferencia: diferencia,
-        notas_cierre: $('#cierre-notas').value || null,
-        cierre_at: new Date().toISOString(),
-      }).eq('id', turno.id);
-      if (e2) throw e2;
-
       cerrarModal();
-      SESSION._ultimoTurnoCerrado = turno.id;
+      SESSION._ultimoTurnoCerrado = r.turno_id;
       SESSION.turnoActivo = null;
 
-      // 3. Mostrar RESULTADO del arqueo (recién ahora se revela)
-      mostrarResultadoArqueo(esperado, declarado, diferencia);
+      mostrarResultadoArqueo(Number(r.esperado), Number(r.declarado), Number(r.diferencia));
 
     } catch (err) {
       toast('Error al cerrar', err.message, 'error');
@@ -1822,9 +2228,11 @@ function mostrarResultadoArqueo(esperado, declarado, diferencia) {
 async function imprimirArqueoCompleto(turnoId) {
   try {
     // Cargar datos del turno
-    const { data: turno } = await db.from('turnos_caja')
-      .select('*, perfiles_usuarios(nombre_completo)')
+    const { data: turno0, error: eTurno } = await db.from('turnos_caja')
+      .select('*')
       .eq('id', turnoId).single();
+    if (eTurno) throw eTurno;
+    const [turno] = await adjuntarCajeros([turno0]);
 
     // Todos los movimientos del turno
     const { data: movs } = await db.from('movimientos_caja')
@@ -1861,7 +2269,7 @@ async function imprimirArqueoCompleto(turnoId) {
     const durMin  = apertura ? Math.floor((new Date(cierre||ahora) - new Date(apertura))/60000) : 0;
     const durStr  = durMin >= 60 ? Math.floor(durMin/60)+'h '+(durMin%60)+'min' : durMin+'min';
 
-    const ventana = window.open('','_blank','width=420,height=700');
+    const ventana = abrirVentanaImpresion(420, 700);
     ventana.document.write(`<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -1993,14 +2401,26 @@ async function imprimirArqueoCompleto(turnoId) {
 
 
 
+// turnos_caja no tiene relación directa con perfiles_usuarios: se agrega el
+// nombre del cajero con una segunda consulta (por recepcionista_id = user_id).
+async function adjuntarCajeros(turnos) {
+  const ids = [...new Set((turnos||[]).map(t => t.recepcionista_id).filter(Boolean))];
+  if (!ids.length) return turnos || [];
+  const { data: perfiles } = await db.from('perfiles_usuarios').select('user_id, nombre_completo').in('user_id', ids);
+  const mapa = Object.fromEntries((perfiles||[]).map(p => [p.user_id, p.nombre_completo]));
+  return (turnos||[]).map(t => ({ ...t, perfiles_usuarios: { nombre_completo: mapa[t.recepcionista_id] || null } }));
+}
+
 async function verHistorialTurnos() {
   try {
-    const { data: turnos } = await db.from('turnos_caja')
-      .select('*, perfiles_usuarios(nombre_completo)')
+    const { data: turnosRaw, error: eT } = await db.from('turnos_caja')
+      .select('*')
       .eq('hotel_id', SESSION.hotel.id)
       .eq('estado', 'cerrado')
       .order('cierre_at', { ascending: false })
       .limit(20);
+    if (eT) throw eT;
+    const turnos = await adjuntarCajeros(turnosRaw);
 
     abrirModal('📋 Historial de arqueos', `
       ${!turnos?.length
@@ -2062,7 +2482,9 @@ async function busquedaGlobalInput(q) {
 }
 
 async function ejecutarBusqueda(q) {
-  if (!SESSION.hotel) return;
+  if (!SESSION.hotel || !puedeVerModulo('huespedes')) return;
+  // Comas, paréntesis y comodines rompen el filtro .or() de Supabase
+  q = q.replace(/[,()%*\\]/g, ' ').trim();
   const ql = q.toLowerCase();
   const resultados = [];
 
@@ -2106,13 +2528,13 @@ async function ejecutarBusqueda(q) {
         bg:     '#F5F3FF',
         badge:  c.label,
         badgeColor: c.badgeBg,
-        accion: () => { navegarA('rack'); },
+        accion: () => irAHabitacion(h.id),
       });
     });
 
     // ── 3. Estadías activas / reservadas ────────────────────
     const { data: estadias } = await db.from('estadias_reservas')
-      .select('id,estado,fecha_entrada,habitaciones(numero),huespedes(nombres,apellidos,num_doc)')
+      .select('id,estado,fecha_entrada,habitacion_id,habitaciones(numero),huespedes(nombres,apellidos,num_doc)')
       .eq('hotel_id', SESSION.hotel.id)
       .in('estado', ['activa','reservada'])
       .limit(30);
@@ -2131,7 +2553,7 @@ async function ejecutarBusqueda(q) {
         icono:  e.estado==='activa' ? '🏨' : '📅',
         color:  e.estado==='activa' ? '#16A34A' : '#CA8A04',
         bg:     e.estado==='activa' ? '#F0FDF4' : '#FEFCE8',
-        accion: () => navegarA('rack'),
+        accion: () => irAHabitacion(e.habitacion_id),
       });
     });
 
@@ -2268,10 +2690,12 @@ let _notificaciones = [];
 let _panelAbierto   = false;
 
 async function cargarNotificaciones() {
-  if (!SESSION.hotel || SESSION.perfil?.es_superadmin) return;
+  if (!SESSION.hotel || SESSION.perfil?.es_superadmin || !puedeVerModulo('rack')) return;
   try {
     const ahora    = new Date();
-    const hoy      = ahora.toISOString().slice(0,10);
+    const hoy      = fechaLocalISO(ahora);
+    const iniHoyISO = new Date(hoy+'T00:00:00').toISOString();
+    const finHoyISO = new Date(hoy+'T23:59:59').toISOString();
     const notis    = [];
 
     // 1. Habitaciones que vencen hoy (salida prevista hoy)
@@ -2279,8 +2703,8 @@ async function cargarNotificaciones() {
       .select('*, habitaciones(numero), huespedes(nombres,apellidos)')
       .eq('hotel_id', SESSION.hotel.id)
       .eq('estado','activa')
-      .gte('fecha_salida_prev', hoy+'T00:00:00')
-      .lte('fecha_salida_prev', hoy+'T23:59:59');
+      .gte('fecha_salida_prev', iniHoyISO)
+      .lte('fecha_salida_prev', finHoyISO);
 
     (vencenHoy||[]).forEach(e => {
       const hora = new Date(e.fecha_salida_prev).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
@@ -2288,7 +2712,7 @@ async function cargarNotificaciones() {
         id: 'salida-'+e.id, tipo: 'salida', urgencia: 'alta',
         titulo: `Check-out previsto · Hab. ${e.habitaciones?.numero}`,
         msg: `${e.huespedes?.nombres} ${e.huespedes?.apellidos} · Salida a las ${hora}`,
-        accion: () => navegarA('rack'),
+        accion: () => irAHabitacion(e.habitacion_id),
         icono: '🚪', color: '#DC2626', bg: '#FEF2F2',
       });
     });
@@ -2298,15 +2722,15 @@ async function cargarNotificaciones() {
       .select('*, habitaciones(numero), huespedes(nombres,apellidos)')
       .eq('hotel_id', SESSION.hotel.id)
       .eq('estado','reservada')
-      .gte('fecha_entrada', hoy+'T00:00:00')
-      .lte('fecha_entrada', hoy+'T23:59:59');
+      .gte('fecha_entrada', iniHoyISO)
+      .lte('fecha_entrada', finHoyISO);
 
     (entradasHoy||[]).forEach(e => {
       notis.push({
         id: 'entrada-'+e.id, tipo: 'entrada', urgencia: 'media',
         titulo: `Check-in hoy · Hab. ${e.habitaciones?.numero}`,
         msg: `${e.huespedes?.nombres} ${e.huespedes?.apellidos} tiene reserva para hoy`,
-        accion: () => navegarA('rack'),
+        accion: () => irAHabitacion(e.habitacion_id),
         icono: '📅', color: '#2563EB', bg: '#EFF6FF',
       });
     });
@@ -2320,7 +2744,7 @@ async function cargarNotificaciones() {
         id: 'limpieza-'+h.id, tipo: 'limpieza', urgencia: 'baja',
         titulo: `Hab. ${h.numero} en limpieza`,
         msg: 'Pendiente de marcar como libre',
-        accion: () => navegarA('rack'),
+        accion: () => irAHabitacion(h.id),
         icono: '🧹', color: '#CA8A04', bg: '#FEFCE8',
       });
     });
@@ -2345,7 +2769,7 @@ async function cargarNotificaciones() {
       const diasRestantes = Math.ceil(
         (new Date(SESSION.hotel.fecha_vencimiento) - ahora) / (1000*60*60*24)
       );
-      if (diasRestantes > 0 && diasRestantes <= 7) {
+      if (diasRestantes > 0 && diasRestantes <= 7 && puedeVerModulo('suscripcion')) {
         notis.push({
           id: 'suscripcion', tipo: 'suscripcion', urgencia: diasRestantes<=3?'alta':'media',
           titulo: `Suscripción vence en ${diasRestantes} día${diasRestantes!==1?'s':''}`,
@@ -2629,7 +3053,7 @@ async function moduloDashboardHotel() {
           ${(llegadas||[]).length
             ? llegadas.map(l => filaPersonaMobile(l.huespedes, l.habitaciones?.numero,
                 new Date(l.fecha_entrada).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}),
-                l.estado==='activa'?['Llegó','#16A34A','#F0FDF4']:['Pendiente','#CA8A04','#FEFCE8'])).join('')
+                l.estado==='activa'?['Llegó','#16A34A','#F0FDF4']:l.estado==='check_out'?['Salió','#64748B','#F1F5F9']:['Pendiente','#CA8A04','#FEFCE8'])).join('')
             : filaVaciaMobile('Sin llegadas registradas hoy', 'Aquí aparecerán los huéspedes que llegan hoy.')}
         </div>
 
@@ -2740,7 +3164,7 @@ async function moduloDashboardHotel() {
             ${(llegadas||[]).length
               ? llegadas.map(l => filaPersona(l.huespedes, l.habitaciones?.numero,
                   new Date(l.fecha_entrada).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'}),
-                  l.estado==='activa'?['Llegó','#16A34A','#F0FDF4']:['Pendiente','#CA8A04','#FEFCE8'])).join('')
+                  l.estado==='activa'?['Llegó','#16A34A','#F0FDF4']:l.estado==='check_out'?['Salió','#64748B','#F1F5F9']:['Pendiente','#CA8A04','#FEFCE8'])).join('')
               : filaVacia('Sin llegadas registradas hoy')}
           </div>
           <div class="card">
@@ -2910,22 +3334,25 @@ function renderModuloMasMobile() {
   const esPro = plan === 'pro';
 
   const todosLosModulos = [
-    { id:'caja',              label:'Caja / Turno',       sub:'Control de caja',           color:'#16A34A', bg:'#F0FDF4',  svg:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',                       roles:['admin','recepcion'] },
+    // Huéspedes no entra en la barra inferior del celular: antes no había forma de abrirlo
+    { id:'huespedes',         label:'Huéspedes',           sub:'Registro y fichas',         color:'#0EA5E9', bg:'#F0F9FF',  svg:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>', roles:['admin','recepcion'] },
+    { id:'caja',             label:'Caja / Turno',       sub:'Control de caja',           color:'#16A34A', bg:'#F0FDF4',  svg:'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',                       roles:['admin','recepcion'] },
     { id:'tiendita',          label:'Tiendita',            sub:'Productos y stock',         color:'#7C3AED', bg:'#F5F3FF',  svg:'<path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/>',  roles:['admin','recepcion'] },
     { id:'facturacion',       label:'Facturación SUNAT',   sub:'Comprobantes electrónicos', color:'#2563EB', bg:'#EFF6FF',  svg:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>',  roles:['admin','recepcion'] },
     { id:'restaurante',       label:'Restaurante',         sub:'Mesas y pedidos',           color:'#EA580C', bg:'#FFF7ED',  svg:'<path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/>',  roles:['admin','recepcion','restaurante'], pro:true },
     { id:'cocina',            label:'Cocina / Comandas',   sub:'Gestión de cocina',         color:'#DC2626', bg:'#FEF2F2',  svg:'<path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/><line x1="6" y1="17" x2="18" y2="17"/>',  roles:['admin','cocina'], pro:true },
     { id:'reportes',          label:'Reportes',            sub:'Estadísticas y análisis',   color:'#0891B2', bg:'#ECFEFF',  svg:'<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>',                roles:['admin'] },
     { id:'personal',          label:'Personal',            sub:'Usuarios y roles',          color:'#7C3AED', bg:'#F5F3FF',  svg:'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><circle cx="19" cy="11" r="3"/>',                roles:['admin'] },
-    { id:'habitacion-config', label:'Habitaciones',        sub:'Gestión de habitaciones',   color:'#2563EB', bg:'#EFF6FF',  svg:'<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',                                    roles:['admin'] },
+    { id:'habitacion-config', label:'Config. habitaciones', sub:'Tipos, tarifas y habitaciones',   color:'#2563EB', bg:'#EFF6FF',  svg:'<path d="M2 4v16"/><path d="M2 8h18a2 2 0 0 1 2 2v10"/><path d="M2 17h20"/><path d="M6 8v9"/>',                                    roles:['admin'] },
     { id:'suscripcion',       label:'Mi Suscripción',      sub:'Plan y facturación',        color:'#16A34A', bg:'#F0FDF4',  svg:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/>',                                       roles:['admin'] },
     { id:'sunat-config',      label:'Config. SUNAT',       sub:'Configuración tributaria',  color:'#CA8A04', bg:'#FEFCE8',  svg:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09"/>',  roles:['admin'] },
   ];
 
-  const visibles = todosLosModulos.filter(m => {
-    if (m.pro && !esPro) return false;
-    return !m.roles || m.roles.includes(rol);
-  });
+  // Misma tabla de permisos que el menú y el candado de renderModulo
+  // (sin repetir lo que ya está en la barra inferior)
+  const enBarra = [...document.querySelectorAll('#sidebar .nav-item')]
+    .filter(b => b.id !== 'btn-nav-mas' && b.style.display !== 'none').map(b => b.dataset.modulo);
+  const visibles = todosLosModulos.filter(m => puedeVerModulo(m.id) && !enBarra.includes(m.id));
 
   contenido().innerHTML = `
     <div style="display:flex;align-items:center;gap:0.85rem;margin-bottom:1.25rem;">
@@ -2982,8 +3409,8 @@ let _rackHabs = [];
 async function moduloRack() {
   skeleton();
   try {
-    SESSION.turnoActivo = await getTurnoAbierto();
-    _rackHabs = await getHabitaciones();
+    // En paralelo (antes eran dos esperas seguidas)
+    [SESSION.turnoActivo, _rackHabs] = await Promise.all([getTurnoAbierto(), getHabitaciones()]);
     renderRack();
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar el rack', err.message);
@@ -2996,7 +3423,7 @@ function renderRack() {
 
   if (habs.length === 0) {
     contenido().innerHTML = `
-      <div class="seccion-titulo">Rack de Habitaciones</div>
+      <div class="seccion-titulo">Habitaciones</div>
       <div class="seccion-sub">Aún no hay habitaciones creadas</div>
       <div class="card" style="max-width:480px;">
         <p style="font-size:0.9rem;color:var(--texto-sub);">Primero crea tus tipos de habitación desde <strong>Habitaciones</strong>.</p>
@@ -3419,6 +3846,14 @@ function setRackVista(vista) {
 function abrirMenuRapidoHab(habId) {
   const h = _rackHabs.find(x => x.id === habId);
   if (!h) return;
+  if (h.estado === 'ocupada') {
+    // Con huésped adentro no se cambia el estado a mano: se libera con el check-out
+    abrirModal(`Habitación ${escapeHtml(h.numero)}`, `
+      <p style="font-size:0.88rem;color:var(--texto);margin:0 0 1rem;">Esta habitación tiene un <strong>huésped alojado</strong>. Para liberarla, haz el check-out (se cobra el saldo y pasa a limpieza).</p>
+      <button onclick="abrirHabitacion('${h.id}')" style="${ST.btnPri}">Ver estadía / Check-out</button>
+    `, { ancho:'420px' });
+    return;
+  }
   abrirCambioEstadoSimple(h);
 }
 
@@ -3426,16 +3861,26 @@ function abrirMenuRapidoHab(habId) {
 async function abrirHabitacion(habId) {
   try {
     _rackHabSelId = habId;
-    const { data: h, error } = await db
-      .from('habitaciones')
-      .select(`*, tipos_habitacion ( nombre, tarifa_noche, tarifa_horas, horas_bloque, capacidad_max )`)
-      .eq('id', habId).single();
-    if (error) throw error;
+    // Respuesta inmediata: la ventana se abre ya con "Cargando…"
+    const num = (_rackHabs || []).find(x => x.id === habId)?.numero || '';
+    abrirModal(`Hab. ${escapeHtml(num)}`, `<div style="display:flex;align-items:center;justify-content:center;gap:0.6rem;padding:2rem;color:var(--texto-sub);"><div class="spinner" style="width:22px;height:22px;"></div>Cargando…</div>`, { ancho:'540px' });
+    // Habitación actualizada + estadías (con huésped y consumos) en paralelo: 1 sola espera
+    const [rh, re] = await Promise.all([
+      db.from('habitaciones')
+        .select(`*, tipos_habitacion ( nombre, tarifa_noche, tarifa_horas, horas_bloque, capacidad_max )`)
+        .eq('id', habId).single(),
+      db.from('estadias_reservas')
+        .select(`*, huespedes(nombres,apellidos,num_doc,celular), consumos_estadia(*)`)
+        .eq('habitacion_id', habId).in('estado', ['activa','reservada'])
+        .order('fecha_entrada', { ascending: true }).limit(20),
+    ]);
+    if (rh.error) throw rh.error;
+    const h = rh.data;
 
     if (h.estado === 'libre' || h.estado === 'limpieza') {
       abrirCheckIn(h);
     } else if (h.estado === 'ocupada' || h.estado === 'reservada') {
-      abrirEstadiaActiva(h);
+      abrirEstadiaActiva(h, re.error ? null : re.data);
     } else {
       // mantenimiento → solo cambiar estado
       abrirCambioEstadoSimple(h);
@@ -3448,13 +3893,18 @@ async function abrirHabitacion(habId) {
 // ── CHECK-IN (habitación libre) ─────────────────────────────
 function abrirCheckIn(h) {
   if (!SESSION.turnoActivo) {
-    toast('Abre tu turno de caja', 'Necesitas un turno abierto para cobrar', 'warn');
-    navegarA('caja'); return;
+    // Sin turno no se puede cobrar: se explica y se ofrece ir a Caja (antes quedaba "Cargando…")
+    abrirModal(`Hab. ${escapeHtml(h.numero)}`, `
+      <p style="font-size:0.88rem;color:var(--texto);margin:0 0 1rem;">Para hacer el check-in necesitas un <strong>turno de caja abierto</strong>, porque se cobra el alojamiento.</p>
+      <button onclick="cerrarModal();navegarA('caja')" style="${ST.btnPri}">Ir a Caja / Turno</button>
+      ${h.estado==='limpieza' ? `<button onclick="setEstadoHab('${h.id}','libre')" style="width:100%;margin-top:0.5rem;padding:0.7rem;border-radius:10px;border:1.5px solid #16A34A;background:#F0FDF4;color:#16A34A;font-weight:600;cursor:pointer;">Marcar como libre (ya está limpia)</button>` : ''}
+    `, { ancho:'420px' });
+    return;
   }
   const tipo = h.tipos_habitacion || {};
   const hoy  = new Date();
   const mañana = new Date(hoy); mañana.setDate(mañana.getDate()+1);
-  const fmtDate = d => d.toISOString().slice(0,10);
+  const fmtDate = d => fechaLocalISO(d);
 
   const html = `
     <form id="form-checkin">
@@ -3673,7 +4123,11 @@ async function procesarCheckIn(h, modalidad) {
   const tipo      = h.tipos_habitacion || {};
 
   if (!nombres||!apellidos||!dni) throw new Error('Completa documento, nombres y apellidos.');
+  const errDoc = validarDocumento(tipoDoc, dni);
+  if (errDoc) throw new Error(errDoc + '.');
   if (isNaN(monto)||monto<0) throw new Error('Monto inválido.');
+  if (comprobante==='factura' && !/^(10|15|17|20)\d{9}$/.test($('#ci-ruc')?.value?.trim()||''))
+    throw new Error('RUC inválido para factura (11 dígitos, empieza con 10, 15, 17 o 20).');
 
   // Calcular fechas
   const ahora = new Date();
@@ -3693,13 +4147,20 @@ async function procesarCheckIn(h, modalidad) {
     noches = null;
   }
 
+  // 0. No vender la habitación si se cruza con una reserva próxima
+  const choque = await reservaSeCruza(h.id, fechaEntrada.toISOString(), salidaPrev.toISOString());
+  if (choque) {
+    const hu = choque.huespedes || {};
+    throw new Error(`La Hab. ${h.numero} tiene ${choque.estado==='activa'?'una estadía':'reserva'} de ${hu.nombres||''} ${hu.apellidos||''} desde ${fechaHora(choque.fecha_entrada)}. Elige otra habitación o acorta la salida.`);
+  }
+
   // 1. Buscar o crear huésped
   let huespedId;
   const { data: hExist } = await db.from('huespedes')
     .select('id').eq('hotel_id',SESSION.hotel.id).eq('num_doc',dni).maybeSingle();
   if (hExist) {
     huespedId = hExist.id;
-    await db.from('huespedes').update({ nombres, apellidos, celular, tipo_doc:tipoDoc }).eq('id',huespedId);
+    chk(await db.from('huespedes').update({ nombres, apellidos, celular, tipo_doc:tipoDoc }).eq('id',huespedId));
   } else {
     const { data:nH, error:eH } = await db.from('huespedes').insert({
       hotel_id:SESSION.hotel.id, tipo_doc:tipoDoc, num_doc:dni, nombres, apellidos, celular,
@@ -3708,7 +4169,9 @@ async function procesarCheckIn(h, modalidad) {
     huespedId = nH.id;
   }
 
-  const tarifa = modalidad==='noche' ? (tipo.tarifa_noche||0)*noches : (tipo.tarifa_horas||0);
+  // Por horas: se cobra cada bloque (ej. 6 h con bloque de 3 h = 2 bloques)
+  const tarifa = modalidad==='noche' ? (tipo.tarifa_noche||0)*noches
+    : (tipo.tarifa_horas||0) * Math.ceil((horas||3) / (tipo.horas_bloque||3));
 
   // 2. Crear estadía
   const { data:estadia, error:eE } = await db.from('estadias_reservas').insert({
@@ -3723,39 +4186,28 @@ async function procesarCheckIn(h, modalidad) {
 
   // 3. Registrar cobro en caja
   if (monto>0) {
-    await db.from('movimientos_caja').insert({
+    chk(await db.from('movimientos_caja').insert({
       hotel_id:SESSION.hotel.id, turno_caja_id:SESSION.turnoActivo.id,
       tipo:'ingreso', concepto:`Check-in Hab.${h.numero} (${nombres} ${apellidos})`,
       monto, metodo_pago:metodo, referencia_id:estadia.id,
       referencia_tipo:'estadia', usuario_id:SESSION.user.id,
-    });
+    }));
   }
 
   // 4. Marcar habitación ocupada
-  await db.from('habitaciones').update({ estado:'ocupada' }).eq('id',h.id);
+  chk(await db.from('habitaciones').update({ estado:'ocupada' }).eq('id',h.id));
 
   // 5. Emitir comprobante si solicitó
   if (comprobante!=='ninguno' && monto>0) {
     try {
-      const { data:cfg } = await db.from('configuracion_sunat').select('*').eq('hotel_id',SESSION.hotel.id).single();
-      if (cfg) {
-        const esFact = comprobante==='factura';
-        const serie  = esFact ? cfg.serie_factura   : cfg.serie_boleta;
-        const corr   = esFact ? cfg.correlativo_factura : cfg.correlativo_boleta;
-        const igv    = parseFloat((monto*0.18/1.18).toFixed(2));
-        const rucRec = esFact ? ($('#ci-ruc')?.value?.trim()||'') : dni;
-        const razon  = esFact ? ($('#ci-razon')?.value?.trim()||'') : `${nombres} ${apellidos}`;
-        await db.from('comprobantes_sunat').insert({
-          hotel_id:SESSION.hotel.id, estadia_id:estadia.id,
-          tipo_doc:comprobante, serie, correlativo:corr,
-          ruc_emisor:cfg.ruc_emisor||SESSION.hotel.ruc||'',
-          ruc_receptor:rucRec, razon_social_rec:razon,
-          total:monto, igv, estado_sunat:'PENDIENTE_ENVIO',
-        });
-        const campo = esFact?'correlativo_factura':'correlativo_boleta';
-        await db.from('configuracion_sunat').update({[campo]:corr+1}).eq('hotel_id',SESSION.hotel.id);
-      }
-    } catch(e) { console.warn('Comprobante check-in:', e.message); }
+      const esFact = comprobante==='factura';
+      await emitirComprobanteServidor({
+        tipo: comprobante, estadiaId: estadia.id, total: monto,
+        rucRec: esFact ? ($('#ci-ruc')?.value?.trim()||'') : dni,
+        razon:  esFact ? ($('#ci-razon')?.value?.trim()||'') : `${nombres} ${apellidos}`,
+        concepto: `Hospedaje Hab. ${h.numero}`,
+      });
+    } catch(e) { toast('Check-in sin comprobante', e.message, 'warn', 7000); }
   }
 
   cerrarModal();
@@ -3763,16 +4215,47 @@ async function procesarCheckIn(h, modalidad) {
   toast('✅ Check-in registrado', `Hab.${h.numero} · ${detalle} · ${soles(monto)} cobrado`, 'ok');
   moduloRack();
 }
-async function abrirEstadiaActiva(h) {
-  const { data:est, error } = await db.from('estadias_reservas')
-    .select(`*, huespedes(nombres,apellidos,num_doc,celular)`)
-    .eq('habitacion_id',h.id).in('estado',['activa','reservada'])
-    .order('created_at',{ascending:false}).limit(1).maybeSingle();
-  if (error||!est) { toast('Error','No se encontró la estadía activa','error'); return; }
+async function abrirEstadiaActiva(h, listaPrevia = null) {
+  // Primero la estadía en curso; si no hay, la reserva más próxima.
+  // (Si "Ver más" ya trajo las estadías con sus consumos, no se vuelve a consultar.)
+  let lista = listaPrevia, error = null;
+  if (!lista) {
+    ({ data: lista, error } = await db.from('estadias_reservas')
+      .select(`*, huespedes(nombres,apellidos,num_doc,celular), consumos_estadia(*)`)
+      .eq('habitacion_id',h.id).in('estado',['activa','reservada'])
+      .order('fecha_entrada',{ascending:true}).limit(20));
+  }
+  const est = (lista||[]).find(e => e.estado==='activa') || (lista||[])[0];
+  if (error||!est) { cerrarModal(); toast('Error','No se encontró la estadía activa','error'); return; }
 
   const hu = est.huespedes||{};
-  const { data:consumos } = await db.from('consumos_estadia')
-    .select('*').eq('estadia_id',est.id).order('created_at');
+
+  if (est.estado === 'reservada') {
+    const saldoRes = Number(est.total_final||est.tarifa_aplicada||0) - Number(est.adelanto_pagado||0);
+    abrirModal(`Hab. ${escapeHtml(h.numero)} — Reserva`, `
+      <div style="display:flex;align-items:center;gap:0.85rem;background:#EFF6FF;border-radius:12px;padding:1rem;margin-bottom:1rem;">
+        <div style="width:44px;height:44px;border-radius:50%;background:white;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.2rem;font-weight:700;color:var(--azul);">
+          ${escapeHtml((hu.nombres||'?')[0].toUpperCase())}
+        </div>
+        <div style="flex:1;">
+          <div style="font-weight:700;">${escapeHtml(hu.nombres||'')} ${escapeHtml(hu.apellidos||'')}</div>
+          <div style="font-size:0.78rem;color:var(--texto-sub);">DNI ${escapeHtml(hu.num_doc||'—')} · ${escapeHtml(hu.celular||'—')}</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;font-size:0.82rem;margin-bottom:1rem;">
+        <div style="background:var(--gris-bg);border-radius:10px;padding:0.6rem 0.75rem;"><div style="color:var(--texto-sub);font-size:0.72rem;">Llegada</div><strong>${fechaHora(est.fecha_entrada)}</strong></div>
+        <div style="background:var(--gris-bg);border-radius:10px;padding:0.6rem 0.75rem;"><div style="color:var(--texto-sub);font-size:0.72rem;">Salida prevista</div><strong>${fechaHora(est.fecha_salida_prev)}</strong></div>
+        <div style="background:var(--gris-bg);border-radius:10px;padding:0.6rem 0.75rem;"><div style="color:var(--texto-sub);font-size:0.72rem;">Adelanto</div><strong style="color:var(--verde);">${soles(est.adelanto_pagado||0)}</strong></div>
+        <div style="background:var(--gris-bg);border-radius:10px;padding:0.6rem 0.75rem;"><div style="color:var(--texto-sub);font-size:0.72rem;">Saldo pendiente</div><strong>${soles(Math.max(0,saldoRes))}</strong></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
+        <button style="${ST.btnSec}" onclick="cerrarModal();cancelarReserva('${est.id}','${h.id}')">Cancelar reserva</button>
+        <button style="${ST.btnPri}" onclick="cerrarModal();confirmarLlegadaReserva('${est.id}','${h.id}')">Confirmar llegada</button>
+      </div>
+    `, { ancho:'480px' });
+    return;
+  }
+  const consumos = [...(est.consumos_estadia || [])].sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
 
   const totalConsumos = (consumos||[]).reduce((s,c)=>s+Number(c.subtotal||c.precio_unitario*c.cantidad),0);
   const totalFinal    = Number(est.tarifa_aplicada)+totalConsumos+Number(est.penalidad_late||0);
@@ -3782,7 +4265,7 @@ async function abrirEstadiaActiva(h) {
   const entrada = new Date(est.fecha_entrada);
   const ahora   = new Date();
   const minutos = Math.floor((ahora-entrada)/60000);
-  const tiempoStr = minutos<60 ? `${minutos}min` : `${Math.floor(minutos/60)}h ${minutos%60}min`;
+  const tiempoStr = fmtMinutos(minutos);
 
   const html = `
     <!-- Header huésped -->
@@ -3792,7 +4275,7 @@ async function abrirEstadiaActiva(h) {
       </div>
       <div style="flex:1;">
         <div style="font-weight:700;font-size:1rem;">${escapeHtml(hu.nombres||'')} ${escapeHtml(hu.apellidos||'')}</div>
-        <div style="font-size:0.78rem;color:var(--texto-sub);">DNI ${escapeHtml(hu.num_doc||'—')} · ${hu.celular||'—'}</div>
+        <div style="font-size:0.78rem;color:var(--texto-sub);">DNI ${escapeHtml(hu.num_doc||'—')} · ${escapeHtml(hu.celular||'—')}</div>
       </div>
       <div style="text-align:right;">
         <div style="font-size:0.68rem;color:var(--texto-sub);">En habitación</div>
@@ -3835,6 +4318,10 @@ async function abrirEstadiaActiva(h) {
           </div>`).join('')}
       </div>
     </div>`:''}
+    ${Number(est.penalidad_late||0) > 0 ? `
+    <div style="display:flex;justify-content:space-between;padding:0.55rem 0.75rem;margin-bottom:1rem;border:1px solid #FECACA;background:#FEF2F2;border-radius:10px;font-size:0.82rem;">
+      <span>Hora extra / penalidad</span><strong style="color:var(--rojo);">${soles(est.penalidad_late)}</strong>
+    </div>` : ''}
 
     <!-- Acciones -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;">
@@ -3907,7 +4394,11 @@ async function abrirCargarConsumo(estadiaId, numero) {
     const desc   = $('#consumo-desc').value.trim();
     const cant   = parseInt($('#consumo-cant').value);
     const precio = parseFloat($('#consumo-precio').value);
-    if (!desc || isNaN(cant) || cant < 1 || isNaN(precio)) { toast('Datos inválidos', '', 'warn'); return; }
+    if (!desc || isNaN(cant) || cant < 1 || isNaN(precio) || precio < 0) { toast('Datos inválidos', '', 'warn'); return; }
+    if (prodId) {
+      const stock = Number($('#consumo-producto').selectedOptions[0]?.dataset.stock) || 0;
+      if (cant > stock) { toast('Stock insuficiente', `Solo hay ${stock} unidad(es)`, 'warn'); return; }
+    }
 
     try {
       // Insertar consumo (el trigger recalcula el total de la estadía)
@@ -3920,12 +4411,12 @@ async function abrirCargarConsumo(estadiaId, numero) {
 
       // Descontar stock si es producto de inventario
       if (prodId) {
-        await db.from('movimientos_inventario').insert({
+        chk(await db.from('movimientos_inventario').insert({
           hotel_id: SESSION.hotel.id, producto_id: prodId, tipo: 'salida',
           cantidad: cant, precio_venta: precio, motivo: 'Cargo a habitación',
           referencia_id: estadiaId, turno_caja_id: SESSION.turnoActivo?.id,
           usuario_id: SESSION.user.id,
-        });
+        }));
       }
       cerrarModal();
       toast('Consumo cargado', `${cant}× ${desc}`, 'ok');
@@ -3960,10 +4451,10 @@ function abrirLateCheckout(estadiaId) {
       const { data: est } = await db.from('estadias_reservas')
         .select('penalidad_late, tarifa_aplicada, total_consumos').eq('id', estadiaId).single();
       const nuevaPenalidad = Number(est.penalidad_late) + monto;
-      await db.from('estadias_reservas').update({
+      chk(await db.from('estadias_reservas').update({
         penalidad_late: nuevaPenalidad,
         total_final: Number(est.tarifa_aplicada) + Number(est.total_consumos) + nuevaPenalidad,
-      }).eq('id', estadiaId);
+      }).eq('id', estadiaId));
       cerrarModal();
       toast('Penalidad agregada', soles(monto), 'ok');
     } catch (err) { toast('Error', err.message, 'error'); }
@@ -3997,9 +4488,9 @@ async function abrirRoomMove(estadiaId, habActualId, numeroActual) {
   $('#btn-move').addEventListener('click', async () => {
     const destinoId = $('#move-destino').value;
     try {
-      await db.from('estadias_reservas').update({ habitacion_id: destinoId }).eq('id', estadiaId);
-      await db.from('habitaciones').update({ estado: 'ocupada' }).eq('id', destinoId);
-      await db.from('habitaciones').update({ estado: 'limpieza' }).eq('id', habActualId);
+      chk(await db.from('estadias_reservas').update({ habitacion_id: destinoId }).eq('id', estadiaId));
+      chk(await db.from('habitaciones').update({ estado: 'ocupada' }).eq('id', destinoId));
+      chk(await db.from('habitaciones').update({ estado: 'limpieza' }).eq('id', habActualId));
       cerrarModal();
       toast('Habitación cambiada', '', 'ok');
       moduloRack();
@@ -4013,11 +4504,18 @@ async function abrirCheckOut(estadiaId, habId, numero) {
     .select('*, huespedes(nombres,apellidos,num_doc)').eq('id',estadiaId).single();
   const { data:consumos } = await db.from('consumos_estadia')
     .select('*').eq('estadia_id',estadiaId).order('created_at');
+  // Comprobantes ya emitidos para esta estadía (p. ej. boleta en el check-in)
+  const { data:compsPrev } = await db.from('comprobantes_sunat')
+    .select('numero_completo,serie,correlativo,total,tipo_doc,estado_sunat').eq('estadia_id',estadiaId);
 
   const totalConsumos = (consumos||[]).reduce((s,c)=>s+Number(c.subtotal||c.precio_unitario*c.cantidad),0);
   const totalFinal    = Number(est.tarifa_aplicada)+totalConsumos+Number(est.penalidad_late||0);
   const saldo         = Math.max(0, totalFinal - Number(est.adelanto_pagado));
   const hu            = est.huespedes||{};
+  const compsVigentes = (compsPrev||[]).filter(c => ['boleta','factura'].includes(c.tipo_doc) && c.estado_sunat !== 'ANULADO');
+  const yaFacturado   = compsVigentes.reduce((s,c)=>s+Number(c.total||0),0);
+  const porFacturar   = Math.max(0, Math.round((totalFinal - yaFacturado)*100)/100);
+  const numsPrev      = compsVigentes.map(c => c.numero_completo || `${c.serie}-${String(c.correlativo).padStart(8,'0')}`).join(', ');
 
   const html = `
     <!-- Resumen liquidación -->
@@ -4059,7 +4557,12 @@ async function abrirCheckOut(estadiaId, habId, numero) {
     </div>`:''}
 
     <!-- Comprobante -->
-    <div style="${ST.grupo}"><label style="${ST.label}">Comprobante del alojamiento</label>
+    ${compsVigentes.length ? `
+    <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:0.6rem 0.8rem;margin-bottom:0.8rem;font-size:0.8rem;color:#166534;">
+      Ya emitido: <strong>${escapeHtml(numsPrev)}</strong> por ${soles(yaFacturado)}.
+      ${porFacturar>0.01 ? `Falta comprobante por <strong>${soles(porFacturar)}</strong> (consumos / penalidades).` : 'No hace falta otro comprobante.'}
+    </div>` : ''}
+    <div style="${ST.grupo};${porFacturar>0.01?'':'display:none;'}"><label style="${ST.label}">${compsVigentes.length ? `Comprobante por lo pendiente (${soles(porFacturar)})` : 'Comprobante del alojamiento'}</label>
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.4rem;">
         <button type="button" onclick="selCompCO('ninguno',this)" class="btn-comp-co"
           style="padding:0.5rem;border-radius:8px;border:1.5px solid var(--azul);background:#EFF6FF;font-size:0.78rem;font-weight:600;cursor:pointer;color:var(--azul);">Sin comp.</button>
@@ -4101,6 +4604,12 @@ async function abrirCheckOut(estadiaId, habId, numero) {
 
   $('#btn-checkout').addEventListener('click', async () => {
     const btn = $('#btn-checkout');
+    if ($('#checkout-comprobante')?.value==='factura' && !/^(10|15|17|20)\d{9}$/.test($('#co-ruc')?.value?.trim()||'')) {
+      toast('RUC inválido', 'Debe tener 11 dígitos y empezar con 10, 15, 17 o 20', 'warn'); return;
+    }
+    if ((parseFloat(btn.dataset.saldo)||0) > 0.01 && !SESSION.turnoActivo) {
+      toast('Abre tu turno de caja', 'Para cobrar el saldo necesitas un turno abierto (Caja / Turno)', 'warn'); return;
+    }
     btn.disabled=true; btn.textContent='Procesando…';
     try {
       const saldoNum   = parseFloat(btn.dataset.saldo)||0;
@@ -4109,45 +4618,34 @@ async function abrirCheckOut(estadiaId, habId, numero) {
 
       // 1. Cobrar saldo
       if (saldoNum>0.01) {
-        await db.from('movimientos_caja').insert({
+        chk(await db.from('movimientos_caja').insert({
           hotel_id:SESSION.hotel.id, turno_caja_id:SESSION.turnoActivo?.id,
           tipo:'ingreso', concepto:`Saldo check-out Hab.${numero}`,
           monto:saldoNum, metodo_pago:metodo,
           referencia_id:estadiaId, referencia_tipo:'estadia', usuario_id:SESSION.user.id,
-        });
+        }));
       }
 
       // 2. Cerrar estadía
-      await db.from('estadias_reservas').update({
+      chk(await db.from('estadias_reservas').update({
         estado:'check_out', fecha_salida_real:new Date().toISOString(), total_final:totalFinal,
         adelanto_pagado:Number(est.adelanto_pagado)+saldoNum,
-      }).eq('id',estadiaId);
+      }).eq('id',estadiaId));
 
       // 3. Habitación a limpieza
-      await db.from('habitaciones').update({ estado:'limpieza' }).eq('id',habId);
+      chk(await db.from('habitaciones').update({ estado:'limpieza' }).eq('id',habId));
 
       // 4. Comprobante si solicitó
-      if (comprobante!=='ninguno' && totalFinal>0) {
+      if (comprobante!=='ninguno' && porFacturar>0.01) {
         try {
-          const { data:cfg } = await db.from('configuracion_sunat').select('*').eq('hotel_id',SESSION.hotel.id).single();
-          if (cfg) {
-            const esFact = comprobante==='factura';
-            const serie  = esFact?cfg.serie_factura:cfg.serie_boleta;
-            const corr   = esFact?cfg.correlativo_factura:cfg.correlativo_boleta;
-            const igv    = parseFloat((totalFinal*0.18/1.18).toFixed(2));
-            const rucRec = esFact?($('#co-ruc')?.value?.trim()||''):(hu.num_doc||'');
-            const razon  = esFact?($('#co-razon')?.value?.trim()||''):`${hu.nombres||''} ${hu.apellidos||''}`.trim();
-            await db.from('comprobantes_sunat').insert({
-              hotel_id:SESSION.hotel.id, estadia_id:estadiaId,
-              tipo_doc:comprobante, serie, correlativo:corr,
-              ruc_emisor:cfg.ruc_emisor||SESSION.hotel.ruc||'',
-              ruc_receptor:rucRec, razon_social_rec:razon,
-              total:totalFinal, igv, estado_sunat:'PENDIENTE_ENVIO',
-            });
-            const campo = esFact?'correlativo_factura':'correlativo_boleta';
-            await db.from('configuracion_sunat').update({[campo]:corr+1}).eq('hotel_id',SESSION.hotel.id);
-          }
-        } catch(e){ console.warn('Comprobante CO:',e.message); }
+          const esFact = comprobante==='factura';
+          await emitirComprobanteServidor({
+            tipo: comprobante, estadiaId, total: porFacturar,
+            rucRec: esFact?($('#co-ruc')?.value?.trim()||''):(hu.num_doc||''),
+            razon:  esFact?($('#co-razon')?.value?.trim()||''):`${hu.nombres||''} ${hu.apellidos||''}`.trim(),
+            concepto: compsVigentes.length ? `Consumos Hab. ${numero}` : `Hospedaje Hab. ${numero}`,
+          });
+        } catch(e){ toast('Check-out sin comprobante', e.message, 'warn', 7000); }
       }
 
       cerrarModal();
@@ -4234,7 +4732,7 @@ function abrirCambioEstadoSimple(h) {
       </div>
       <div>
         <label style="${ST.label}">Fecha fin estimada</label>
-        <input style="${ST.input}" id="mant-fecha-fin" type="date" min="${new Date().toISOString().slice(0,10)}">
+        <input style="${ST.input}" id="mant-fecha-fin" type="date" min="${fechaLocalISO()}">
       </div>
     </div>
     <div style="${ST.grupo}">
@@ -4306,18 +4804,21 @@ async function iniciarMantenimiento(habId) {
   if (!motivo) { toast('Selecciona o escribe el motivo','','warn'); return; }
 
   try {
+    const { data: activas } = await db.from('estadias_reservas')
+      .select('id').eq('habitacion_id', habId).eq('estado', 'activa').limit(1);
+    if (activas?.length) { toast('Habitación ocupada', 'Primero haz el check-out del huésped', 'warn'); return; }
     const now = new Date().toISOString();
     // Actualizar habitación
-    await db.from('habitaciones').update({
+    chk(await db.from('habitaciones').update({
       estado:                'mantenimiento',
       motivo_mantenimiento:  motivo,
       fecha_inicio_mant:     now,
       fecha_fin_mant_est:    fechaFin || null,
       responsable_mant:      resp || null,
-    }).eq('id', habId);
+    }).eq('id', habId));
 
     // Registrar en historial
-    await db.from('mantenimientos').insert({
+    chk(await db.from('mantenimientos').insert({
       hotel_id:       SESSION.hotel.id,
       habitacion_id:  habId,
       motivo,
@@ -4328,7 +4829,7 @@ async function iniciarMantenimiento(habId) {
       costo_estimado: costo,
       creado_por:     SESSION.user.id,
       estado:         'activo',
-    });
+    }));
 
     cerrarModal();
     toast('🔧 Hab. en mantenimiento', motivo, 'ok');
@@ -4345,21 +4846,21 @@ async function finalizarMantenimiento(habId, nuevoEstado) {
     const estadoHab = nuevoEstado === 'limpieza' ? 'limpieza' : 'libre';
 
     // Actualizar habitación
-    await db.from('habitaciones').update({
+    chk(await db.from('habitaciones').update({
       estado:               estadoHab,
       motivo_mantenimiento: null,
       fecha_inicio_mant:    null,
       fecha_fin_mant_est:   null,
       responsable_mant:     null,
-    }).eq('id', habId);
+    }).eq('id', habId));
 
     // Cerrar el registro de mantenimiento activo
-    await db.from('mantenimientos').update({
+    chk(await db.from('mantenimientos').update({
       estado:        'completado',
       fecha_fin_real:now,
       costo_real:    costoReal,
       descripcion:   obs || null,
-    }).eq('habitacion_id', habId).eq('estado', 'activo');
+    }).eq('habitacion_id', habId).eq('estado', 'activo'));
 
     cerrarModal();
     toast(
@@ -4445,6 +4946,13 @@ async function verHistorialMant(habId, numero) {
 
 async function setEstadoHab(habId, estado) {
   try {
+    // Una habitación con huésped adentro solo se libera con check-out
+    const { data: activas } = await db.from('estadias_reservas')
+      .select('id').eq('habitacion_id', habId).eq('estado', 'activa').limit(1);
+    if (activas?.length && estado !== 'ocupada') {
+      toast('Habitación ocupada', 'Primero haz el check-out del huésped (botón "Ver más")', 'warn');
+      return;
+    }
     const update = { estado };
     // Si sale de mantenimiento, limpiar campos
     if (estado !== 'mantenimiento') {
@@ -4453,10 +4961,11 @@ async function setEstadoHab(habId, estado) {
       update.fecha_fin_mant_est   = null;
       update.responsable_mant     = null;
     }
-    await db.from('habitaciones').update(update).eq('id', habId);
+    chk(await db.from('habitaciones').update(update).eq('id', habId));
     cerrarModal();
     toast('Estado actualizado', COLORES_ESTADO[estado]?.label || estado, 'ok');
-    moduloRack();
+    // Volver a la pantalla desde donde se marcó (Rack o Estado de Habitaciones)
+    renderModulo(moduloActual || 'rack');
   } catch (err) { toast('Error', err.message, 'error'); }
 }
 
@@ -4476,8 +4985,9 @@ async function moduloCalendario() {
   skeleton();
   try {
     const hoy = new Date();
-    const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
-    const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 3, 0);
+    // 3 meses atrás y 12 adelante: al avanzar de mes siguen apareciendo las reservas
+    const desde = new Date(hoy.getFullYear(), hoy.getMonth() - 3, 1);
+    const hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 13, 0);
 
     const [{ data: habs }, { data: reservas }] = await Promise.all([
       db.from('habitaciones')
@@ -4505,8 +5015,10 @@ async function moduloCalendario() {
 }
 
 function renderCalendario() {
-  const habs     = window._calHabs || [];
-  const reservas = window._calReservas || [];
+  // Filtro por habitación (chips de arriba)
+  const fHab     = window._calFiltroHab && window._calFiltroHab !== 'todas' ? window._calFiltroHab : null;
+  const habs     = (window._calHabs || []).filter(h => !fHab || h.id === fHab);
+  const reservas = (window._calReservas || []).filter(r => !fHab || r.habitacion_id === fHab);
   const vista    = window._calVista;
   const fecha    = window._calFecha;
   const esMobile = window.innerWidth <= 768;
@@ -4517,7 +5029,7 @@ function renderCalendario() {
     activa:     { bg:'#D1FAE5', text:'#065F46', dot:'#16A34A',  label:'En estadía' },
     por_llegar: { bg:'#FEF3C7', text:'#92400E', dot:'#F59E0B',  label:'Por llegar' },
     ocupada:    { bg:'#FEE2E2', text:'#991B1B', dot:'#EF4444',  label:'Ocupada'    },
-    check_out:  { bg:'#F5F3FF', text:'#5B21B6', dot:'#8B5CF6',  label:'Salida hoy' },
+    check_out:  { bg:'#F5F3FF', text:'#5B21B6', dot:'#8B5CF6',  label:'Finalizada' },
     cancelada:  { bg:'#F3F4F6', text:'#6B7280', dot:'#9CA3AF',  label:'Cancelada'  },
   };
 
@@ -4556,14 +5068,14 @@ function renderCalendario() {
   if (esMobile) {
     // ── MÓVIL ──
     // Estado seleccionado en el calendario (por defecto hoy)
-    window._calDiaSeleccionado = window._calDiaSeleccionado || new Date().toISOString().slice(0,10);
+    window._calDiaSeleccionado = window._calDiaSeleccionado || fechaLocalISO();
     const diaSelStr = window._calDiaSeleccionado;
     const diaSelFecha = new Date(diaSelStr + 'T12:00:00');
 
     // Reservas del día seleccionado
     const resDiaSel = reservas.filter(r => {
-      const ent = (r.fecha_entrada||'').slice(0,10);
-      const sal = (r.fecha_salida_prev||r.fecha_salida_real||'').slice(0,10);
+      const ent = (fechaLocalISO(r.fecha_entrada||'')||'');
+      const sal = (fechaLocalISO(r.fecha_salida_prev||r.fecha_salida_real||'')||'');
       return diaSelStr >= ent && diaSelStr < sal;
     });
 
@@ -4578,7 +5090,7 @@ function renderCalendario() {
       const color = PALETA_MES[i % PALETA_MES.length].text;
       const dot   = {reservada:'#16A34A',activa:'#2563EB',check_out:'#CA8A04'}[r.estado]||'#94A3B8';
       for (let d = new Date(ent); d < sal; d.setDate(d.getDate()+1)) {
-        const k = d.toISOString().slice(0,10);
+        const k = fechaLocalISO(d);
         if (!puntosXDia[k]) puntosXDia[k] = [];
         if (puntosXDia[k].length < 3) puntosXDia[k].push(dot);
       }
@@ -4782,15 +5294,11 @@ function renderCalendario() {
               background:${window._calFiltroHab==='todas'?'var(--azul)':'#F1F5F9'};color:${window._calFiltroHab==='todas'?'white':'var(--texto-sub)'};border:none;">
               Todas las habitaciones
             </button>
-            ${habs.slice(0,5).map(h=>`
+            ${(window._calHabs || []).map(h=>`
               <button onclick="setCalFiltroHab('${h.id}')" style="padding:0.35rem 0.85rem;border-radius:999px;font-size:0.78rem;font-weight:600;cursor:pointer;white-space:nowrap;
                 background:${window._calFiltroHab===h.id?'var(--azul)':'#F1F5F9'};color:${window._calFiltroHab===h.id?'white':'var(--texto-sub)'};border:none;">
                 ${escapeHtml(h.numero)}
               </button>`).join('')}
-          </div>
-          <div style="display:flex;align-items:center;gap:0.5rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;margin-left:0.75rem;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            Filtrar
           </div>
         </div>
         ${vista==='mes' ? renderMesGrid(reservas, fecha, PALETA_MES, false, estadoColor) : vista==='semana' ? renderSemanaGrid(habs, reservas, fecha, PALETA_MES) : renderDiaGrid(habs, reservas, fecha)}
@@ -4818,11 +5326,11 @@ function renderCalendario() {
           <div style="width:44px;height:44px;border-radius:12px;background:white;display:flex;align-items:center;justify-content:center;margin:0 auto 0.75rem;">
             <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
           </div>
-          <div style="font-weight:700;font-size:0.88rem;color:var(--texto);margin-bottom:0.2rem;">Sincroniza con tu equipo</div>
-          <div style="font-size:0.75rem;color:var(--texto-sub);margin-bottom:0.85rem;">Mantén tu calendario actualizado en tiempo real.</div>
-          <button onclick="navegarA('reservas')" style="width:100%;display:flex;align-items:center;justify-content:center;gap:0.4rem;background:white;border:1.5px solid #BFDBFE;border-radius:9px;padding:0.6rem;font-size:0.8rem;font-weight:600;color:var(--azul);cursor:pointer;">
+          <div style="font-weight:700;font-size:0.88rem;color:var(--texto);margin-bottom:0.2rem;">Comparte las llegadas</div>
+          <div style="font-size:0.75rem;color:var(--texto-sub);margin-bottom:0.85rem;">Envía por WhatsApp las llegadas de los próximos 7 días a tu equipo.</div>
+          <button onclick="compartirLlegadasWA()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:0.4rem;background:white;border:1.5px solid #BFDBFE;border-radius:9px;padding:0.6rem;font-size:0.8rem;font-weight:600;color:var(--azul);cursor:pointer;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
-            Compartir calendario
+            Compartir por WhatsApp
           </button>
         </div>
       </div>
@@ -4850,7 +5358,7 @@ function renderDiasMobile(fecha, puntosXDia, diaSelStr) {
   return celdas.map(d=>{
     const esMesCur = d.getMonth()===mes;
     const esHoy    = d.toDateString()===hoy.toDateString();
-    const dStr     = d.toISOString().slice(0,10);
+    const dStr     = fechaLocalISO(d);
     const esSel    = dStr===diaSelStr;
     const puntos   = puntosXDia[dStr]||[];
     const esFin    = d.getDay()===0||d.getDay()===6;
@@ -4920,10 +5428,10 @@ function renderMesGrid(reservas, fecha, PALETA, esMobile, estadoColor) {
               const esMesCur = d.getMonth()===mes;
               const esHoy2   = d.toDateString()===hoy.toDateString();
               const esFin    = di===0||di===6;
-              const dStr     = d.toISOString().slice(0,10);
+              const dStr     = fechaLocalISO(d);
               const resDia   = reservas.filter(r=>{
-                const ent=(r.fecha_entrada||'').slice(0,10);
-                const sal=(r.fecha_salida_prev||r.fecha_salida_real||'').slice(0,10);
+                const ent=(fechaLocalISO(r.fecha_entrada||'')||'');
+                const sal=(fechaLocalISO(r.fecha_salida_prev||r.fecha_salida_real||'')||'');
                 return dStr>=ent && dStr<sal && esMesCur;
               });
               return `<td style="vertical-align:top;padding:${esMobile?'3':'5'}px;border:1px solid var(--gris-borde);${celH};background:${esHoy2?'#EFF6FF':esFin&&esMesCur?'#FAFAFA':'white'};width:${100/7}%;">
@@ -4980,10 +5488,10 @@ function renderSemanaGrid(habs, reservas, fecha, PALETA) {
         ${habs.map(h=>`<tr style="border-bottom:1px solid var(--gris-borde);">
           <td style="padding:0.5rem 0.75rem;font-size:0.82rem;font-weight:700;border-right:2px solid var(--gris-borde);">Hab. ${escapeHtml(h.numero)}</td>
           ${dias.map(d=>{
-            const dStr=d.toISOString().slice(0,10);
+            const dStr=fechaLocalISO(d);
             const esHoy2=d.toDateString()===hoy.toDateString();
             const esFin=d.getDay()===0||d.getDay()===6;
-            const res=reservas.find(r=>r.habitacion_id===h.id&&dStr>=(r.fecha_entrada||'').slice(0,10)&&dStr<(r.fecha_salida_prev||r.fecha_salida_real||'').slice(0,10));
+            const res=reservas.find(r=>r.habitacion_id===h.id&&dStr>=(fechaLocalISO(r.fecha_entrada||'')||'')&&dStr<(fechaLocalISO(r.fecha_salida_prev||r.fecha_salida_real||'')||''));
             const c=res?resColorMap[res.id]:null;
             const nom=res?`${res.huespedes?.nombres||''}`.trim():'';
             return `<td style="padding:4px;height:50px;border-right:1px solid var(--gris-borde);background:${esHoy2?'#EFF6FF':esFin?'#FAFAFA':'white'};">
@@ -4997,10 +5505,10 @@ function renderSemanaGrid(habs, reservas, fecha, PALETA) {
 
 // ── GRID DÍA ─────────────────────────────────────────────────
 function renderDiaGrid(habs, reservas, fecha) {
-  const dStr = fecha.toISOString().slice(0,10);
+  const dStr = fechaLocalISO(fecha);
   const resDia = reservas.filter(r=>{
-    const ent=(r.fecha_entrada||'').slice(0,10);
-    const sal=(r.fecha_salida_prev||r.fecha_salida_real||'').slice(0,10);
+    const ent=(fechaLocalISO(r.fecha_entrada||'')||'');
+    const sal=(fechaLocalISO(r.fecha_salida_prev||r.fecha_salida_real||'')||'');
     return dStr>=ent && dStr<sal;
   });
   const dLabel = fecha.toLocaleDateString('es-PE',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
@@ -5038,7 +5546,7 @@ function renderMiniCal(fecha, reservas) {
   while(celdas.length<42){ celdas.push(new Date(cur)); cur.setDate(cur.getDate()+1); }
   const mesStr=fecha.toLocaleDateString('es-PE',{month:'long',year:'numeric'});
   const DIAS=['D','L','M','M','J','V','S'];
-  const conRes=new Set(reservas.map(r=>r.fecha_entrada?.slice(0,10)));
+  const conRes=new Set(reservas.map(r=>(r.fecha_entrada?fechaLocalISO(r.fecha_entrada):'')));
 
   return `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.85rem;">
@@ -5052,9 +5560,9 @@ function renderMiniCal(fecha, reservas) {
         ${Array.from({length:6},(_,si)=>`<tr>${celdas.slice(si*7,si*7+7).map(d=>{
           const esMesCur=d.getMonth()===mes;
           const esHoy2=d.toDateString()===hoy.toDateString();
-          const dStr=d.toISOString().slice(0,10);
+          const dStr=fechaLocalISO(d);
           const tieneRes=conRes.has(dStr)&&esMesCur;
-          return `<td style="text-align:center;padding:0.2rem;cursor:pointer;" onclick="window._calFecha=new Date('${dStr}');window._calVista='dia';renderCalendario();">
+          return `<td style="text-align:center;padding:0.2rem;cursor:pointer;" onclick="window._calFecha=new Date('${dStr}T00:00:00');window._calVista='dia';renderCalendario();">
             <div style="width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto;
               background:${esHoy2?'var(--azul)':tieneRes?'#DBEAFE':'transparent'};
               font-size:0.72rem;font-weight:${esHoy2?'800':'500'};
@@ -5101,11 +5609,30 @@ function navCal(dir) {
   window._calFecha=new Date(f);
   renderCalendario();
 }
+// Envía por WhatsApp las llegadas (reservas) de los próximos 7 días
+async function compartirLlegadasWA() {
+  try {
+    const ini = new Date(); ini.setHours(0,0,0,0);
+    const fin = new Date(ini); fin.setDate(fin.getDate() + 7);
+    const { data, error } = await db.from('estadias_reservas')
+      .select('fecha_entrada, fecha_salida_prev, habitaciones(numero), huespedes(nombres,apellidos)')
+      .eq('hotel_id', SESSION.hotel.id).eq('estado', 'reservada')
+      .gte('fecha_entrada', ini.toISOString()).lt('fecha_entrada', fin.toISOString())
+      .order('fecha_entrada');
+    if (error) throw error;
+    const hotel = (SESSION.hotel?.nombre_comercial || 'Hotel').trim();
+    const lineas = (data || []).map(r =>
+      `• ${fechaCorta(r.fecha_entrada)} — Hab. ${r.habitaciones?.numero || '?'} — ${[r.huespedes?.nombres, r.huespedes?.apellidos].filter(Boolean).join(' ')} (sale ${fechaCorta(r.fecha_salida_prev)})`);
+    const texto = `*${hotel}* — Llegadas próximos 7 días\n` + (lineas.length ? lineas.join('\n') : 'Sin reservas en los próximos 7 días.');
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+  } catch (e) { toast('Error', e.message, 'error'); }
+}
+
 function irHoyCal() {
   window._calFecha=new Date(); renderCalendario();
 }
 function verDiaReservas(dStr) {
-  window._calFecha=new Date(dStr); window._calVista='dia'; renderCalendario();
+  window._calFecha=new Date(String(dStr).length===10 ? dStr+'T00:00:00' : dStr); window._calVista='dia'; renderCalendario();
 }
 function abrirReservaDetalle(id) {
   const res=(window._calReservas||[]).find(r=>r.id===id);
@@ -5115,7 +5642,7 @@ function abrirReservaDetalle(id) {
   const tipo=res.habitaciones?.tipos_habitacion?.nombre||'';
   const ent=new Date(res.fecha_entrada).toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'});
   const sal=new Date(res.fecha_salida_prev||res.fecha_salida_real).toLocaleDateString('es-PE',{day:'numeric',month:'short',year:'numeric'});
-  const ec={reservada:{bg:'#DBEAFE',text:'#1D4ED8',label:'Confirmada'},activa:{bg:'#D1FAE5',text:'#065F46',label:'En estadía'},check_out:{bg:'#F5F3FF',text:'#5B21B6',label:'Salida hoy'}}[res.estado]||{bg:'#F3F4F6',text:'#6B7280',label:res.estado};
+  const ec={reservada:{bg:'#DBEAFE',text:'#1D4ED8',label:'Confirmada'},activa:{bg:'#D1FAE5',text:'#065F46',label:'En estadía'},check_out:{bg:'#F5F3FF',text:'#5B21B6',label:'Finalizada'}}[res.estado]||{bg:'#F3F4F6',text:'#6B7280',label:res.estado};
   abrirModal('Detalle de reserva',`
     <div style="display:flex;flex-direction:column;gap:0.85rem;">
       <div style="display:flex;align-items:center;gap:0.85rem;">
@@ -5160,9 +5687,14 @@ async function moduloReservas() {
 
     const ahora = new Date();
     const estadoReserva = (r) => {
+      // Comparar por día calendario (no por horas) para que una reserva de
+      // días pasados no aparezca como "Hoy".
       const entrada = new Date(r.fecha_entrada);
-      const diff = Math.ceil((entrada - ahora) / (1000*60*60*24));
-      if (diff <= 0) return ['Hoy','#16A34A','#F0FDF4'];
+      const diaEntrada = new Date(entrada.getFullYear(), entrada.getMonth(), entrada.getDate());
+      const diaHoy     = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate());
+      const diff = Math.round((diaEntrada - diaHoy) / (1000*60*60*24));
+      if (diff < 0)  return ['Vencida','#DC2626','#FEF2F2'];
+      if (diff === 0) return ['Hoy','#16A34A','#F0FDF4'];
       if (diff <= 3) return ['Próxima','#2563EB','#EFF6FF'];
       return ['Confirmada','#7C3AED','#F5F3FF'];
     };
@@ -5227,10 +5759,10 @@ async function moduloReservas() {
             <span style="width:7px;height:7px;border-radius:50%;background:#16A34A;flex-shrink:0;"></span>
             <select id="res-filtro-estado-m" onchange="filtrarReservasMobile()" style="border:none;background:none;outline:none;font-size:0.78rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;">
               <option value="">Todas las reservas</option>
-              <option value="pendiente">Pendientes</option>
+              <option value="hoy">Llegan hoy</option>
+              <option value="próxima">Próximas (3 días)</option>
               <option value="confirmada">Confirmadas</option>
-              <option value="hoy">Check-in hoy</option>
-              <option value="anulada">Anuladas</option>
+              <option value="vencida">Vencidas (no llegaron)</option>
             </select>
           </div>
         </div>
@@ -5333,10 +5865,10 @@ async function moduloReservas() {
           <span style="width:8px;height:8px;border-radius:50%;background:#16A34A;flex-shrink:0;"></span>
           <select id="res-filtro-estado" onchange="filtrarReservas()" style="border:none;background:none;outline:none;font-size:0.83rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;">
             <option value="">Todas las reservas</option>
-            <option value="pendiente">Pendientes</option>
+            <option value="hoy">Llegan hoy</option>
+            <option value="próxima">Próximas (3 días)</option>
             <option value="confirmada">Confirmadas</option>
-            <option value="hoy">Check-in hoy</option>
-            <option value="anulada">Anuladas</option>
+            <option value="vencida">Vencidas (no llegaron)</option>
           </select>
         </div>
         <!-- Exportar -->
@@ -5352,11 +5884,11 @@ async function moduloReservas() {
           <table style="width:100%;border-collapse:collapse;font-size:0.85rem;min-width:700px;">
             <thead>
               <tr style="border-bottom:1px solid var(--gris-borde);text-align:left;">
-                <th style="${thCss()}">ENTRADA ↕</th>
-                <th style="${thCss()}">SALIDA ↕</th>
+                <th style="${thCss()};cursor:pointer;" onclick="ordenarReservas('fecha_entrada')" title="Ordenar">ENTRADA ↕</th>
+                <th style="${thCss()};cursor:pointer;" onclick="ordenarReservas('fecha_salida_prev')" title="Ordenar">SALIDA ↕</th>
                 <th style="${thCss()}">HAB.</th>
                 <th style="${thCss()}">HUÉSPED</th>
-                <th style="${thCss()}">ADELANTO ↕</th>
+                <th style="${thCss()};cursor:pointer;" onclick="ordenarReservas('adelanto_pagado')" title="Ordenar">ADELANTO ↕</th>
                 <th style="${thCss()}">ESTADO</th>
                 <th style="${thCss()};text-align:right;">ACCIÓN</th>
               </tr>
@@ -5584,7 +6116,7 @@ function filtrarReservasMobile() {
 
   const filtradas = data.filter(r => {
     const h = r.huespedes || {};
-    const buscar = `${h.nombres||''} ${h.apellidos||''} ${r.habitaciones?.numero||''} ${r.fecha_entrada||''}`.toLowerCase();
+    const buscar = `${h.nombres||''} ${h.apellidos||''} ${h.num_doc||''} ${r.habitaciones?.numero||''} ${r.fecha_entrada||''} ${textoFechaBusqueda(r.fecha_entrada)}`.toLowerCase();
     if (q && !buscar.includes(q)) return false;
 
     if (filtFec) {
@@ -5592,7 +6124,7 @@ function filtrarReservasMobile() {
       if (filtFec === 'hoy'    && entrada.getTime() !== hoy.getTime()) return false;
       if (filtFec === 'manana' && entrada.getTime() !== manana.getTime()) return false;
       if (filtFec === 'semana' && (entrada < hoy || entrada > finSemana)) return false;
-      if (filtFec === 'mes'    && (entrada < hoy || entrada > finMes)) return false;
+      if (filtFec === 'mes'    && (entrada.getMonth() !== hoy.getMonth() || entrada.getFullYear() !== hoy.getFullYear())) return false;
     }
 
     if (filtEst && fn) {
@@ -5671,7 +6203,7 @@ function filtrarReservas() {
 
   const filtradas = data.filter(r => {
     const h = r.huespedes || {};
-    const buscar = `${h.nombres||''} ${h.apellidos||''} ${r.habitaciones?.numero||''} ${r.fecha_entrada||''}`.toLowerCase();
+    const buscar = `${h.nombres||''} ${h.apellidos||''} ${h.num_doc||''} ${r.habitaciones?.numero||''} ${r.fecha_entrada||''} ${textoFechaBusqueda(r.fecha_entrada)}`.toLowerCase();
     if (q && !buscar.includes(q)) return false;
 
     if (filtFec) {
@@ -5679,7 +6211,7 @@ function filtrarReservas() {
       if (filtFec === 'hoy'    && entrada.getTime() !== hoy.getTime()) return false;
       if (filtFec === 'manana' && entrada.getTime() !== manana.getTime()) return false;
       if (filtFec === 'semana' && (entrada < hoy || entrada > finSemana)) return false;
-      if (filtFec === 'mes'    && (entrada < hoy || entrada > finMes)) return false;
+      if (filtFec === 'mes'    && (entrada.getMonth() !== hoy.getMonth() || entrada.getFullYear() !== hoy.getFullYear())) return false;
     }
 
     if (filtEst && fn) {
@@ -5693,6 +6225,9 @@ function filtrarReservas() {
 
     return true;
   });
+
+  const o = window._resOrden;
+  if (o) filtradas.sort((a,b) => { const va=a[o.campo], vb=b[o.campo]; const x = o.campo==='adelanto_pagado' ? Number(va||0)-Number(vb||0) : new Date(va||0)-new Date(vb||0); return o.asc ? x : -x; });
 
   // Re-renderizar tabla
   const tbody = document.querySelector('#res-tbody');
@@ -5747,20 +6282,14 @@ function renderFilasReservas(reservas, estadoReserva) {
 function exportarReservasCSV() {
   const rows = window._reservasData || [];
   if (!rows.length) { toast('Sin datos', '', 'warn'); return; }
-  const cab = ['Entrada','Salida','Habitación','Nombres','Apellidos','Adelanto'];
-  const lineas = rows.map(r => [
+  const cab = ['Entrada','Salida','Habitación','Nombres','Apellidos','Adelanto (S/)'];
+  const filas = rows.map(r => [
     fechaHora(r.fecha_entrada), fechaHora(r.fecha_salida_prev),
     r.habitaciones?.numero||'', r.huespedes?.nombres||'', r.huespedes?.apellidos||'',
-    r.adelanto_pagado,
-  ].map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','));
-  const csv = '\uFEFF' + [cab.join(','), ...lineas].join('\n');
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8;' }));
-  a.download = `reservas_${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-  toast('Exportado', 'Archivo CSV descargado', 'ok');
+    Number(r.adelanto_pagado||0),
+  ]);
+  exportarExcel(`reservas_${fechaLocalISO()}`, cab, filas, 'Reservas');
 }
-
 function abrirOpcionesReserva(reservaId, habId) {
   const reserva = (window._reservasData || []).find(r => r.id === reservaId);
   const h = reserva?.huespedes || {};
@@ -5798,8 +6327,8 @@ function abrirOpcionesReserva(reservaId, habId) {
 function verHuespedDesdeReserva(reservaId) {
   const reserva = (window._reservasData || []).find(r => r.id === reservaId);
   if (reserva?.huesped_id) {
-    navegarA('huespedes');
-    setTimeout(() => abrirFichaHuesped(reserva.huesped_id), 500);
+    // La ficha se abre encima de Reservas (antes cambiaba a Huéspedes y la ficha no llegaba a verse)
+    abrirFichaHuesped(reserva.huesped_id);
   } else {
     toast('Sin huésped', 'Esta reserva no tiene huésped vinculado', 'warn');
   }
@@ -5835,7 +6364,17 @@ async function guardarFechasReserva(reservaId) {
   if (!entrada || !salida) { toast('Completa los campos', '', 'warn'); return; }
   if (new Date(salida) <= new Date(entrada)) { toast('Fechas inválidas', 'La salida debe ser después de la entrada', 'warn'); return; }
   try {
-    await db.from('estadias_reservas').update({ fecha_entrada: entrada, fecha_salida_prev: salida }).eq('id', reservaId);
+    const entISO = new Date(entrada).toISOString(), salISO = new Date(salida).toISOString();
+    const { data: r0, error: e0 } = await db.from('estadias_reservas').select('habitacion_id').eq('id', reservaId).single();
+    if (e0) throw e0;
+    const choque = await reservaSeCruza(r0.habitacion_id, entISO, salISO, reservaId);
+    if (choque) {
+      const hu = choque.huespedes || {};
+      toast('Fechas no disponibles', `Se cruza con ${hu.nombres||''} ${hu.apellidos||''} (${fechaCorta(choque.fecha_entrada)} – ${fechaCorta(choque.fecha_salida_prev)})`, 'warn', 7000);
+      return;
+    }
+    const { error } = await db.from('estadias_reservas').update({ fecha_entrada: entISO, fecha_salida_prev: salISO }).eq('id', reservaId);
+    if (error) throw error;
     cerrarModal();
     toast('Fechas actualizadas', '', 'ok');
     moduloReservas();
@@ -5843,35 +6382,70 @@ async function guardarFechasReserva(reservaId) {
 }
 
 async function cancelarReserva(reservaId, habId) {
+  if (!confirm('¿Cancelar esta reserva? Si cobraste un adelanto, la devolución se registra aparte como egreso en Caja.')) return;
   try {
-    await db.from('estadias_reservas').update({ estado:'anulada' }).eq('id', reservaId);
-    await db.from('habitaciones').update({ estado:'libre' }).eq('id', habId);
+    const { error } = await db.from('estadias_reservas').update({ estado:'anulada' }).eq('id', reservaId);
+    if (error) throw error;
+    // Solo liberar si la habitación estaba bloqueada por la reserva (no si hay otro huésped dentro)
+    const { data: otras } = await db.from('estadias_reservas').select('id')
+      .eq('habitacion_id', habId).eq('estado', 'activa').limit(1);
+    if (!(otras||[]).length) {
+      chk(await db.from('habitaciones').update({ estado:'libre' }).eq('id', habId).eq('estado', 'reservada'));
+    }
     cerrarModal();
-    toast('Reserva cancelada', 'La habitación quedó libre', 'ok');
-    moduloReservas();
+    toast('Reserva cancelada', '', 'ok');
+    if (moduloActual === 'rack') moduloRack(); else moduloReservas();
   } catch(err) { toast('Error', err.message, 'error'); }
+}
+
+// ¿La habitación tiene otra reserva/estadía que se cruce con [entrada, salida)?
+async function reservaSeCruza(habId, entradaISO, salidaISO, excluirId = null) {
+  let q = db.from('estadias_reservas')
+    .select('id, estado, fecha_entrada, fecha_salida_prev, huespedes(nombres,apellidos)')
+    .eq('habitacion_id', habId).in('estado', ['reservada','activa'])
+    .lt('fecha_entrada', salidaISO).gt('fecha_salida_prev', entradaISO);
+  if (excluirId) q = q.neq('id', excluirId);
+  const { data, error } = await q.limit(1);
+  if (error) throw error;
+  return (data || [])[0] || null;
 }
 
 async function abrirNuevaReserva() {
   if (!SESSION.turnoActivo) SESSION.turnoActivo = await getTurnoAbierto();
+  // Se puede reservar a futuro cualquier habitación activa (aunque hoy esté
+  // ocupada); la disponibilidad se valida por fechas al guardar.
   const { data: habs } = await db.from('habitaciones')
-    .select(`id, numero, tipos_habitacion(nombre, tarifa_noche)`)
-    .eq('hotel_id', SESSION.hotel.id).in('estado', ['libre']).eq('activo', true).order('numero');
+    .select(`id, numero, estado, tipos_habitacion(nombre, tarifa_noche)`)
+    .eq('hotel_id', SESSION.hotel.id).eq('activo', true).neq('estado', 'mantenimiento').order('numero');
 
-  if (!habs || habs.length === 0) { toast('Sin habitaciones libres', '', 'warn'); return; }
+  if (!habs || habs.length === 0) { toast('Sin habitaciones disponibles', '', 'warn'); return; }
+
+  const pad = n => String(n).padStart(2,'0');
+  const fLocal = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const hoy14 = new Date(); hoy14.setHours(14,0,0,0);
+  // Pasadas las 2 p. m., la entrada sugerida es mañana (no una hora que ya pasó)
+  if (hoy14 < new Date()) hoy14.setDate(hoy14.getDate() + 1);
+  const man12 = new Date(hoy14); man12.setDate(man12.getDate()+1); man12.setHours(12,0,0,0);
 
   const html = `
     <form id="form-reserva">
       <div style="${ST.grupo}">
         <label style="${ST.label}">Habitación *</label>
         <select style="${ST.input}" id="res-hab">
-          ${habs.map(h => `<option value="${h.id}" data-tarifa="${h.tipos_habitacion?.tarifa_noche||0}">Hab. ${escapeHtml(h.numero)} — ${escapeHtml(h.tipos_habitacion?.nombre||'')}</option>`).join('')}
+          ${habs.map(h => `<option value="${h.id}" data-tarifa="${h.tipos_habitacion?.tarifa_noche||0}">Hab. ${escapeHtml(h.numero)} — ${escapeHtml(h.tipos_habitacion?.nombre||'')} · ${soles(h.tipos_habitacion?.tarifa_noche||0)}/noche${h.estado!=='libre'?` (hoy ${escapeHtml(h.estado)})`:''}</option>`).join('')}
         </select>
       </div>
-      <div style="${ST.grupo}">
-        <label style="${ST.label}">Fecha y hora de entrada *</label>
-        <input style="${ST.input}" id="res-fecha" type="datetime-local" required>
+      <div style="${ST.fila}">
+        <div style="${ST.grupo}">
+          <label style="${ST.label}">Entrada *</label>
+          <input style="${ST.input}" id="res-fecha" type="datetime-local" value="${fLocal(hoy14)}" required>
+        </div>
+        <div style="${ST.grupo}">
+          <label style="${ST.label}">Salida *</label>
+          <input style="${ST.input}" id="res-salida" type="datetime-local" value="${fLocal(man12)}" required>
+        </div>
       </div>
+      <div id="res-resumen" style="background:var(--gris-bg);border-radius:10px;padding:0.6rem 0.85rem;margin-bottom:0.85rem;font-size:0.82rem;color:var(--texto-sub);"></div>
       <div style="${ST.fila}">
         <div style="${ST.grupo}"><label style="${ST.label}">DNI</label><input style="${ST.input}" id="res-dni" maxlength="8"></div>
         <div style="${ST.grupo}"><label style="${ST.label}">Celular</label><input style="${ST.input}" id="res-celular"></div>
@@ -5891,65 +6465,170 @@ async function abrirNuevaReserva() {
   `;
   abrirModal('Nueva reserva', html, { ancho: '520px' });
 
+  // Noches y total estimado según fechas
+  const calcular = () => {
+    const tarifa = parseFloat($('#res-hab').selectedOptions[0]?.dataset.tarifa) || 0;
+    const ent = new Date($('#res-fecha').value), sal = new Date($('#res-salida').value);
+    const ok = !isNaN(ent) && !isNaN(sal) && sal > ent;
+    const noches = ok ? Math.max(1, Math.round((new Date(sal.getFullYear(),sal.getMonth(),sal.getDate()) - new Date(ent.getFullYear(),ent.getMonth(),ent.getDate())) / 86400000)) : 0;
+    const res = $('#res-resumen');
+    if (res) res.innerHTML = ok
+      ? `${noches} noche${noches!==1?'s':''} × ${soles(tarifa)} = <strong style="color:var(--texto);">${soles(noches*tarifa)}</strong>`
+      : '<span style="color:var(--rojo);">La salida debe ser posterior a la entrada</span>';
+    return { tarifa, noches, total: noches*tarifa, ok, ent, sal };
+  };
+  ['#res-hab','#res-fecha','#res-salida'].forEach(s => $(s).addEventListener('change', calcular));
+  calcular();
+
   $('#form-reserva').addEventListener('submit', async e => {
     e.preventDefault();
+    const btn = e.submitter || $('#form-reserva button[type="submit"]');
     try {
       const habId = $('#res-hab').value;
-      const tarifa = parseFloat($('#res-hab').selectedOptions[0].dataset.tarifa) || 0;
+      const { total, ok, ent, sal } = calcular();
       const dni = $('#res-dni').value.trim() || ('SINDOC'+Date.now());
       const nombres = $('#res-nombres').value.trim();
       const apellidos = $('#res-apellidos').value.trim();
       const adelanto = parseFloat($('#res-adelanto').value) || 0;
-      const fecha = $('#res-fecha').value;
-      if (!nombres || !apellidos || !fecha) { toast('Completa los campos', '', 'warn'); return; }
+      const metodo = $('#res-metodo').value;
+      if (!nombres || !apellidos || !$('#res-fecha').value || !$('#res-salida').value) { toast('Completa los campos', '', 'warn'); return; }
+      if (!ok) { toast('Fechas inválidas', 'La salida debe ser después de la entrada', 'warn'); return; }
+      const hoy0 = new Date(); hoy0.setHours(0,0,0,0);
+      if (new Date($('#res-fecha').value) < hoy0) { toast('Fecha pasada', 'La entrada de una reserva no puede ser anterior a hoy', 'warn'); return; }
+      if (adelanto < 0) { toast('Adelanto inválido', 'No puede ser negativo', 'warn'); return; }
+      if (adelanto > 0 && !SESSION.turnoActivo) {
+        toast('Abre un turno de caja', 'Para cobrar el adelanto primero abre tu turno en Caja / Turno', 'warn'); return;
+      }
+
+      if (btn) btn.disabled = true;
+
+      // Disponibilidad por fechas
+      const choque = await reservaSeCruza(habId, ent.toISOString(), sal.toISOString());
+      if (choque) {
+        const hu = choque.huespedes || {};
+        toast('Habitación no disponible',
+          `Se cruza con ${choque.estado==='activa'?'la estadía':'la reserva'} de ${hu.nombres||''} ${hu.apellidos||''} (${fechaCorta(choque.fecha_entrada)} – ${fechaCorta(choque.fecha_salida_prev)})`, 'warn', 7000);
+        if (btn) btn.disabled = false;
+        return;
+      }
 
       // Huésped
       let huespedId;
-      const { data: hE } = await db.from('huespedes').select('id').eq('hotel_id', SESSION.hotel.id).eq('num_doc', dni).maybeSingle();
+      const { data: hE, error: eH } = await db.from('huespedes').select('id').eq('hotel_id', SESSION.hotel.id).eq('num_doc', dni).maybeSingle();
+      if (eH) throw eH;
       if (hE) { huespedId = hE.id; }
       else {
-        const { data: nH } = await db.from('huespedes').insert({
+        const { data: nH, error: eNH } = await db.from('huespedes').insert({
           hotel_id: SESSION.hotel.id, tipo_doc:'DNI', num_doc:dni, nombres, apellidos, celular:$('#res-celular').value.trim(),
         }).select('id').single();
+        if (eNH) throw eNH;
         huespedId = nH.id;
       }
 
       // Estadía tipo reserva
-      const salidaPrev = new Date(fecha); salidaPrev.setDate(salidaPrev.getDate()+1);
-      const { data: est } = await db.from('estadias_reservas').insert({
+      const { data: est, error: eEst } = await db.from('estadias_reservas').insert({
         hotel_id: SESSION.hotel.id, habitacion_id: habId, huesped_id: huespedId,
         turno_caja_id: SESSION.turnoActivo?.id, modalidad:'noche', tipo_reserva:'reserva_futura',
-        estado:'reservada', fecha_entrada:new Date(fecha).toISOString(),
-        fecha_salida_prev:salidaPrev.toISOString(), tarifa_aplicada:tarifa,
-        adelanto_pagado:adelanto, total_final:tarifa, metodo_pago:$('#res-metodo').value,
+        estado:'reservada', fecha_entrada:ent.toISOString(),
+        fecha_salida_prev:sal.toISOString(), tarifa_aplicada:total,
+        adelanto_pagado:adelanto, total_final:total, metodo_pago:metodo,
       }).select('id').single();
+      if (eEst) throw eEst;
 
       // Cobrar adelanto a caja
-      if (adelanto > 0 && SESSION.turnoActivo) {
-        await db.from('movimientos_caja').insert({
+      if (adelanto > 0) {
+        const { error: eMov } = await db.from('movimientos_caja').insert({
           hotel_id: SESSION.hotel.id, turno_caja_id: SESSION.turnoActivo.id, tipo:'ingreso',
-          concepto:`Adelanto reserva Hab. (${nombres})`, monto:adelanto, metodo_pago:$('#res-metodo').value,
+          concepto:`Adelanto reserva Hab. (${nombres})`, monto:adelanto, metodo_pago:metodo,
           referencia_id:est.id, referencia_tipo:'adelanto', usuario_id:SESSION.user.id,
         });
+        if (eMov) throw eMov;
       }
-      // Marcar habitación reservada
-      await db.from('habitaciones').update({ estado:'reservada' }).eq('id', habId);
+      // Solo se bloquea la habitación en el rack si la llegada es HOY y está libre;
+      // las reservas a futuro no bloquean la venta de hoy.
+      const hoy = new Date();
+      if (ent.toDateString() === hoy.toDateString()) {
+        chk(await db.from('habitaciones').update({ estado:'reservada' }).eq('id', habId).eq('estado', 'libre'));
+      }
 
       cerrarModal();
       toast('Reserva creada', adelanto>0?`Adelanto ${soles(adelanto)} cobrado`:'', 'ok');
       moduloReservas();
-    } catch (err) { toast('Error', err.message, 'error'); }
+    } catch (err) {
+      toast('Error', err.message, 'error');
+      if (btn) btn.disabled = false;
+    }
   });
 }
 
+// Botón "Check-in" de una reserva: primero se muestra un resumen y se confirma
+// (antes un solo clic registraba la llegada, aunque fuera por error o la reserva estuviera vencida)
 async function confirmarLlegadaReserva(estadiaId, habId) {
   try {
-    await db.from('estadias_reservas').update({
-      estado:'activa', fecha_entrada:new Date().toISOString(),
+    const { data: r, error } = await db.from('estadias_reservas')
+      .select('fecha_entrada, fecha_salida_prev, tarifa_aplicada, adelanto_pagado, habitaciones(numero), huespedes(nombres,apellidos,num_doc)')
+      .eq('id', estadiaId).single();
+    if (error) throw error;
+    const hu = r.huespedes || {};
+    const hoy0 = new Date(); hoy0.setHours(0,0,0,0);
+    const ent0 = new Date(r.fecha_entrada); ent0.setHours(0,0,0,0);
+    const aviso = ent0 < hoy0 ? `<div style="background:#FEF2F2;border:1px solid #FECACA;color:#991B1B;border-radius:10px;padding:0.6rem 0.8rem;font-size:0.8rem;margin-bottom:0.8rem;">Esta reserva era para el <strong>${fechaCorta(r.fecha_entrada)}</strong> (vencida). Si el huésped llegó hoy, se registrará con fecha de hoy.</div>`
+      : ent0 > hoy0 ? `<div style="background:#FEFCE8;border:1px solid #FDE68A;color:#854D0E;border-radius:10px;padding:0.6rem 0.8rem;font-size:0.8rem;margin-bottom:0.8rem;">La llegada estaba prevista para el <strong>${fechaCorta(r.fecha_entrada)}</strong>. Se adelantará a hoy.</div>` : '';
+    const saldo = Math.max(0, Number(r.tarifa_aplicada||0) - Number(r.adelanto_pagado||0));
+    abrirModal('Registrar llegada', `
+      ${aviso}
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:0.4rem 1rem;font-size:0.86rem;margin-bottom:1rem;">
+        <span style="color:var(--texto-sub);">Huésped</span><strong>${escapeHtml(`${hu.nombres||''} ${hu.apellidos||''}`)}</strong>
+        <span style="color:var(--texto-sub);">Habitación</span><strong>${escapeHtml(r.habitaciones?.numero||'')}</strong>
+        <span style="color:var(--texto-sub);">Tarifa</span><strong>${soles(r.tarifa_aplicada)}</strong>
+        <span style="color:var(--texto-sub);">Adelanto</span><strong>${soles(r.adelanto_pagado)}</strong>
+        <span style="color:var(--texto-sub);">Saldo</span><strong>${soles(saldo)} <span style="font-weight:400;color:var(--texto-sub);font-size:0.78rem;">(se cobra en el check-out)</span></strong>
+      </div>
+      <button id="btn-conf-llegada" style="${ST.btnPri}">Confirmar llegada del huésped</button>
+    `, { ancho:'440px' });
+    $('#btn-conf-llegada').addEventListener('click', async (e) => {
+      e.target.disabled = true; e.target.textContent = 'Registrando…';
+      cerrarModal();
+      await ejecutarLlegadaReserva(estadiaId, habId);
+    });
+  } catch (err) { toast('Error', err.message, 'error'); }
+}
+
+async function ejecutarLlegadaReserva(estadiaId, habId) {
+  try {
+    // La habitación no puede tener otro huésped dentro ni estar en mantenimiento
+    const { data: hab, error: eHab } = await db.from('habitaciones').select('numero, estado').eq('id', habId).single();
+    if (eHab) throw eHab;
+    const { data: activa } = await db.from('estadias_reservas').select('id')
+      .eq('habitacion_id', habId).eq('estado', 'activa').neq('id', estadiaId).limit(1);
+    if ((activa||[]).length || hab.estado === 'ocupada') {
+      toast('Habitación ocupada', `La Hab. ${hab.numero} aún tiene un huésped. Haz su check-out o cambia la habitación de la reserva.`, 'warn', 7000); return;
+    }
+    if (hab.estado === 'mantenimiento') {
+      toast('Habitación en mantenimiento', `Finaliza el mantenimiento de la Hab. ${hab.numero} primero.`, 'warn', 7000); return;
+    }
+    if (hab.estado === 'limpieza' && !confirm(`La Hab. ${hab.numero} figura en limpieza. ¿Ya está lista para el huésped?`)) return;
+
+    // Si llega en otra fecha, se conservan las noches reservadas a partir de hoy
+    const { data: res0, error: eRes } = await db.from('estadias_reservas')
+      .select('fecha_entrada, fecha_salida_prev').eq('id', estadiaId).single();
+    if (eRes) throw eRes;
+    const ahora = new Date();
+    const d0 = new Date(res0.fecha_entrada), d1 = new Date(res0.fecha_salida_prev);
+    const noches = Math.max(1, Math.round((new Date(d1.getFullYear(),d1.getMonth(),d1.getDate()) - new Date(d0.getFullYear(),d0.getMonth(),d0.getDate())) / 86400000));
+    let salida = d1;
+    if (!(d1 > ahora) || d0.toDateString() !== ahora.toDateString()) {
+      salida = new Date(ahora); salida.setDate(salida.getDate() + noches); salida.setHours(12,0,0,0);
+    }
+
+    const { error } = await db.from('estadias_reservas').update({
+      estado:'activa', fecha_entrada:ahora.toISOString(), fecha_salida_prev:salida.toISOString(),
     }).eq('id', estadiaId);
-    await db.from('habitaciones').update({ estado:'ocupada' }).eq('id', habId);
+    if (error) throw error;
+    const { error: e2 } = await db.from('habitaciones').update({ estado:'ocupada' }).eq('id', habId);
+    if (e2) throw e2;
     toast('Huésped registrado', 'La reserva pasó a estadía activa', 'ok');
-    moduloReservas();
+    if (moduloActual === 'rack') moduloRack(); else moduloReservas();
   } catch (err) { toast('Error', err.message, 'error'); }
 }
 
@@ -5966,9 +6645,14 @@ async function moduloHuespedes() {
     const hoyIni = new Date(); hoyIni.setHours(0,0,0,0);
     const hoyFin = new Date(); hoyFin.setHours(23,59,59,999);
 
-    const { data: activos }     = await db.from('estadias_reservas').select('id').eq('hotel_id', SESSION.hotel.id).eq('estado','activa');
-    const { data: checkinHoy }  = await db.from('estadias_reservas').select('id').eq('hotel_id', SESSION.hotel.id).gte('fecha_entrada', hoyIni.toISOString()).lte('fecha_entrada', hoyFin.toISOString()).eq('estado','activa');
-    const { data: checkoutHoy } = await db.from('estadias_reservas').select('id').eq('hotel_id', SESSION.hotel.id).gte('fecha_salida_real', hoyIni.toISOString()).lte('fecha_salida_real', hoyFin.toISOString()).eq('estado','check_out');
+    const [{ data: activos }, { data: checkinHoy }, { data: checkoutHoy }] = await Promise.all([
+      db.from('estadias_reservas').select('id, huesped_id').eq('hotel_id', SESSION.hotel.id).eq('estado','activa'),
+      db.from('estadias_reservas').select('id').eq('hotel_id', SESSION.hotel.id).gte('fecha_entrada', hoyIni.toISOString()).lte('fecha_entrada', hoyFin.toISOString()).eq('estado','activa'),
+      db.from('estadias_reservas').select('id').eq('hotel_id', SESSION.hotel.id).gte('fecha_salida_real', hoyIni.toISOString()).lte('fecha_salida_real', hoyFin.toISOString()).eq('estado','check_out'),
+    ]);
+    // Marcar quién está alojado ahora (filtro "Alojados ahora" / "Solo registrados")
+    const alojados = new Set((activos||[]).map(e => e.huesped_id));
+    (huespedes||[]).forEach(h => { h._alojado = alojados.has(h.id); });
 
     const totalHuespedes = (huespedes||[]).length;
     const totalActivos   = (activos||[]).length;
@@ -6025,21 +6709,9 @@ async function moduloHuespedes() {
 
         <!-- Filtros pills -->
         <div style="display:flex;gap:0.5rem;overflow-x:auto;scrollbar-width:none;margin-bottom:1rem;padding-bottom:0.1rem;">
-          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);white-space:nowrap;cursor:pointer;flex-shrink:0;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-            Fecha
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;"><polyline points="6 9 12 15 18 9"/></svg>
-          </div>
-          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);white-space:nowrap;cursor:pointer;flex-shrink:0;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            Estados
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;"><polyline points="6 9 12 15 18 9"/></svg>
-          </div>
-          <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);white-space:nowrap;cursor:pointer;flex-shrink:0;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
-            Recientes
-            <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;"><polyline points="6 9 12 15 18 9"/></svg>
-          </div>
+          <select id="hues-filtro-fecha" onchange="filtrarHuespedes()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;font-family:inherit;cursor:pointer;"><option value="">Fecha: todas</option><option value="hoy">Hoy</option><option value="semana">Esta semana</option><option value="mes">Este mes</option><option value="mes_pasado">Mes pasado</option></select>
+          <select id="hues-filtro-estado" onchange="filtrarHuespedes()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;font-family:inherit;cursor:pointer;"><option value="">Estado: todos</option><option value="alojado">Alojados ahora</option><option value="registrado">Solo registrados</option><option value="vip">VIP</option></select>
+          <select id="hues-filtro-orden" onchange="filtrarHuespedes()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;font-family:inherit;cursor:pointer;"><option value="reciente">Más recientes</option><option value="antiguo">Más antiguos</option><option value="nombre">Nombre A→Z</option></select>
         </div>
 
         <!-- Tarjetas de huéspedes -->
@@ -6229,7 +6901,7 @@ function renderTarjetasHuespedesMobile(lista) {
             <div style="font-size:0.75rem;color:var(--texto-sub);margin-top:0.1rem;">${escapeHtml(h.tipo_doc||'DNI')} ${escapeHtml(h.num_doc||'—')}</div>
             ${h.celular ? `<div style="font-size:0.72rem;color:var(--texto-sub);">Cel: ${escapeHtml(h.celular)}</div>` : ''}
           </div>
-          <span style="flex-shrink:0;font-size:0.65rem;font-weight:700;color:#16A34A;background:#F0FDF4;padding:0.2rem 0.6rem;border-radius:999px;border:1px solid #BBF7D0;">● Registrado</span>
+          <span style="flex-shrink:0;font-size:0.65rem;font-weight:700;color:${h._alojado?'#2563EB':'#16A34A'};background:${h._alojado?'#EFF6FF':'#F0FDF4'};padding:0.2rem 0.6rem;border-radius:999px;border:1px solid ${h._alojado?'#BFDBFE':'#BBF7D0'};">● ${h._alojado ? 'Alojado' : 'Registrado'}</span>
         </div>
 
         <!-- Fecha registro + habitación + botón -->
@@ -6311,9 +6983,9 @@ function renderFilasHuespedes(lista) {
         </div>
       </td>
       <td style="${tdCss()}">
-        <span style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.72rem;font-weight:700;color:#16A34A;background:#F0FDF4;padding:0.25rem 0.75rem;border-radius:999px;">
-          <span style="width:6px;height:6px;border-radius:50%;background:#16A34A;"></span>
-          Registrado
+        <span style="display:inline-flex;align-items:center;gap:0.35rem;font-size:0.72rem;font-weight:700;color:${h._alojado?'#2563EB':'#16A34A'};background:${h._alojado?'#EFF6FF':'#F0FDF4'};padding:0.25rem 0.75rem;border-radius:999px;">
+          <span style="width:6px;height:6px;border-radius:50%;background:${h._alojado?'#2563EB':'#16A34A'};"></span>
+          ${h._alojado ? 'Alojado' : 'Registrado'}
         </span>
       </td>
       <td style="${tdCss()};text-align:right;">
@@ -6347,7 +7019,7 @@ function filtrarHuespedes() {
   const data      = window._huespedesAll || [];
 
   const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const finSemana = new Date(hoy); finSemana.setDate(hoy.getDate()+7);
+  const iniSemana = new Date(hoy); iniSemana.setDate(hoy.getDate()-6); // últimos 7 días (registros pasados)
   const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   const finMes    = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0);
   const inicioMesPasado = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
@@ -6361,7 +7033,7 @@ function filtrarHuespedes() {
     if (filtFecha) {
       const reg = new Date(h.created_at); reg.setHours(0,0,0,0);
       if (filtFecha === 'hoy'        && reg.getTime() !== hoy.getTime()) return false;
-      if (filtFecha === 'semana'     && (reg < hoy || reg > finSemana)) return false;
+      if (filtFecha === 'semana'     && (reg < iniSemana || reg > hoy)) return false;
       if (filtFecha === 'mes'        && (reg < inicioMes || reg > finMes)) return false;
       if (filtFecha === 'mes_pasado' && (reg < inicioMesPasado || reg > finMesPasado)) return false;
     }
@@ -6378,6 +7050,7 @@ function filtrarHuespedes() {
   if (orden === 'reciente') lista.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
   if (orden === 'antiguo')  lista.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
   if (orden === 'nombre')   lista.sort((a,b) => (a.nombres||'').localeCompare(b.nombres||'', 'es'));
+  window._huespedesFiltrados = lista; // lo que se exporta es lo que se ve
 
   // Desktop
   const tbody = document.getElementById('hues-tbody');
@@ -6433,6 +7106,8 @@ function abrirRegistrarHuesped() {
     const apellidos = $('#h-apellidos').value.trim();
     const celular = $('#h-celular').value.trim();
     if (!numdoc || !nombres || !apellidos) { toast('Completa los campos requeridos','','warn'); return; }
+    const errDoc = validarDocumento(tipodoc, numdoc);
+    if (errDoc) { toast('Documento inválido', errDoc, 'warn'); return; }
     try {
       const { error } = await db.from('huespedes').insert({
         hotel_id: SESSION.hotel.id, tipo_doc: tipodoc, num_doc: numdoc,
@@ -6642,30 +7317,63 @@ async function guardarEdicionHuesped(id) {
   const doc       = document.getElementById('edit-hues-doc')?.value?.trim();
   const celular   = document.getElementById('edit-hues-celular')?.value?.trim();
   if (!nombres || !apellidos) { toast('Completa nombres y apellidos','','warn'); return; }
+  const errDoc = validarDocumento(tipo, doc);
+  if (errDoc) { toast('Documento inválido', errDoc, 'warn'); return; }
   try {
-    await db.from('huespedes').update({ nombres, apellidos, tipo_doc:tipo, num_doc:doc, celular }).eq('id', id);
+    chk(await db.from('huespedes').update({ nombres, apellidos, tipo_doc:tipo, num_doc:doc, celular }).eq('id', id));
     cerrarModal();
     toast('✅ Datos actualizados','','ok');
     moduloHuespedes();
   } catch(err) { toast('Error', err.message, 'error'); }
 }
 
-function exportarHuespedesCSV() {
-  const rows = window._huespedesCache || [];
-  if (!rows.length) { toast('Sin datos', 'No hay huéspedes para exportar', 'warn'); return; }
-  const cab = ['Tipo Doc','Documento','Nombres','Apellidos','Celular','Nacionalidad','Fecha Registro'];
-  const lineas = rows.map(h => [
-    h.tipo_doc, h.num_doc, h.nombres, h.apellidos, h.celular||'', h.nacionalidad||'PE', fechaCorta(h.created_at)
-  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
-  const csv = '\uFEFF' + [cab.join(','), ...lineas].join('\n');
-  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `huespedes_${SESSION.hotel.nombre_comercial}_${new Date().toISOString().slice(0,10)}.csv`;
-  a.click();
-  toast('Exportado', 'Archivo CSV descargado', 'ok');
+// ── Exportar a Excel (.xlsx real). Carga SheetJS solo al usarlo; si no hay
+//    conexión con el CDN, descarga CSV (con BOM) como respaldo. ─────────────
+function cargarLibXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  if (window._xlsxCargando) return window._xlsxCargando;
+  window._xlsxCargando = new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = () => ok(window.XLSX);
+    s.onerror = () => { window._xlsxCargando = null; fail(new Error('No se pudo cargar el generador de Excel')); };
+    document.head.appendChild(s);
+  });
+  return window._xlsxCargando;
 }
 
+async function exportarExcel(nombreBase, cabecera, filas, nombreHoja = 'Datos') {
+  const limpio = String(nombreBase).trim().replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, '_').replace(/_+/g, '_');
+  try {
+    const XLSX = await cargarLibXlsx();
+    const ws = XLSX.utils.aoa_to_sheet([cabecera, ...filas]);
+    ws['!cols'] = cabecera.map((c, i) => ({
+      wch: Math.min(40, Math.max(String(c).length, ...filas.map(f => String(f[i] ?? '').length)) + 2)
+    }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, nombreHoja.slice(0, 31));
+    XLSX.writeFile(wb, `${limpio}.xlsx`);
+    toast('Exportado', 'Archivo Excel descargado', 'ok');
+  } catch (e) {
+    const csv = '﻿' + [cabecera, ...filas]
+      .map(f => f.map(v => `"${String(v ?? '').replace(/"/g,'""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type:'text/csv;charset=utf-8;' }));
+    a.download = `${limpio}.csv`;
+    a.click();
+    toast('Exportado como CSV', 'Sin conexión para generar Excel; se descargó CSV', 'warn');
+  }
+}
+
+function exportarHuespedesCSV() {
+  const rows = window._huespedesFiltrados || window._huespedesCache || [];
+  if (!rows.length) { toast('Sin datos', 'No hay huéspedes para exportar', 'warn'); return; }
+  const cab = ['Tipo Doc','Documento','Nombres','Apellidos','Celular','Nacionalidad','Fecha Registro'];
+  const filas = rows.map(h => [
+    h.tipo_doc, h.num_doc, h.nombres, h.apellidos, h.celular||'', h.nacionalidad||'PE', fechaCorta(h.created_at)
+  ]);
+  exportarExcel(`huespedes_${(SESSION.hotel.nombre_comercial||'hotel').trim().replace(/\s+/g,'_')}_${fechaLocalISO()}`, cab, filas, 'Huéspedes');
+}
 
 // ════════════════════════════════════════════════════════════
 //  HOTEL › TIENDITA / ALMACÉN
@@ -6677,7 +7385,8 @@ async function moduloTiendita() {
     const { data: productos } = await db.from('productos')
       .select('*').eq('hotel_id', SESSION.hotel.id).eq('activo', true).order('nombre');
 
-    const prods = productos || [];
+    // Categorías sin distinguir mayúsculas/espacios ("Bebidas" = "bebidas ")
+    const prods = (productos || []).map(p => ({ ...p, categoria: String(p.categoria||'general').trim().toLowerCase() || 'general' }));
     window._productosCache = prods;
 
     // Métricas
@@ -6685,6 +7394,13 @@ async function moduloTiendita() {
     const stockTotal   = prods.reduce((s,p) => s + Number(p.stock_actual||0), 0);
     const valorCosto   = prods.reduce((s,p) => s + Number(p.stock_actual||0) * Number(p.costo_compra||0), 0);
     const valorVenta   = prods.reduce((s,p) => s + Number(p.stock_actual||0) * Number(p.precio_venta||0), 0);
+    // Indicadores reales (antes eran porcentajes fijos de adorno). "!" = alerta (rojo)
+    const nBajoStock   = prods.filter(p => Number(p.stock_actual||0) <= Number(p.stock_minimo||0)).length;
+    const nPerdida     = prods.filter(p => Number(p.costo_compra||0) > 0 && Number(p.precio_venta||0) < Number(p.costo_compra||0)).length;
+    const margenPct    = valorCosto > 0 ? Math.round(((valorVenta - valorCosto) / valorCosto) * 100) : null;
+    const badgeProds   = nBajoStock ? `!${nBajoStock} con stock bajo` : '';
+    const badgeMargen  = margenPct === null ? '' : (margenPct < 0 ? `!Margen ${margenPct}%` : `Margen ${margenPct}%`);
+    const badgeCosto   = nPerdida ? `!${nPerdida} bajo costo` : '';
 
     // Categorías únicas
     const cats = ['Todos', ...new Set(prods.map(p => p.categoria||'general').filter(Boolean))];
@@ -6712,13 +7428,13 @@ async function moduloTiendita() {
 
         <!-- 4 KPIs en 2x2 -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
-          ${tiendaKpiMobile('Productos', totalProds, 'Activos en inventario', '#2563EB', '#EFF6FF', '0%',
+          ${tiendaKpiMobile('Productos', totalProds, 'Activos en inventario', '#2563EB', '#EFF6FF', badgeProds,
             '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>', false)}
-          ${tiendaKpiMobile('Stock total', stockTotal, 'Unidades', '#16A34A', '#F0FDF4', '12%',
+          ${tiendaKpiMobile('Stock total', stockTotal, 'Unidades', '#16A34A', '#F0FDF4', '',
             '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>', false)}
-          ${tiendaKpiMobile('Valor en inventario (costo)', valorCosto, '', '#EA580C', '#FFF7ED', '8%',
+          ${tiendaKpiMobile('Valor en inventario (costo)', valorCosto, '', '#EA580C', '#FFF7ED', badgeCosto,
             '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>', true)}
-          ${tiendaKpiMobile('Valor de venta (potencial)', valorVenta, '', '#DC2626', '#FEF2F2', '8%',
+          ${tiendaKpiMobile('Valor de venta (potencial)', valorVenta, '', '#DC2626', '#FEF2F2', badgeMargen,
             '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>', true)}
         </div>
 
@@ -6738,7 +7454,7 @@ async function moduloTiendita() {
         </div>
 
         <!-- 3 botones de acción -->
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
+        <div style="display:grid;grid-template-columns:${SESSION.perfil?.rol==='admin' ? '1fr 1fr 1fr' : '1fr 1fr'};gap:0.6rem;margin-bottom:1rem;">
           <button onclick="abrirReposicion()"
             style="display:flex;flex-direction:column;align-items:center;gap:0.35rem;padding:0.85rem 0.5rem;background:white;border:1.5px solid var(--gris-borde);border-radius:14px;cursor:pointer;font-size:0.68rem;font-weight:600;color:var(--texto-sub);">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
@@ -6749,11 +7465,11 @@ async function moduloTiendita() {
             <svg viewBox="0 0 24 24" fill="none" stroke="var(--azul)" stroke-width="2" stroke-linecap="round" style="width:22px;height:22px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             Venta rápida
           </button>
-          <button onclick="abrirFormProducto()"
+          ${SESSION.perfil?.rol==='admin' ? `<button onclick="abrirFormProducto()"
             style="display:flex;flex-direction:column;align-items:center;gap:0.35rem;padding:0.85rem 0.5rem;background:var(--azul);border:none;border-radius:14px;cursor:pointer;font-size:0.68rem;font-weight:700;color:white;box-shadow:0 4px 14px rgba(37,99,235,0.35);">
             <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:22px;height:22px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Nuevo producto
-          </button>
+          </button>` : ''}
         </div>
 
         <!-- Banner inferior -->
@@ -6763,11 +7479,11 @@ async function moduloTiendita() {
             <path d="M0 50 Q50 10 100 40 Q150 70 200 30 L200 80 L0 80 Z" fill="#2563EB"/>
           </svg>
           <div style="width:40px;height:40px;border-radius:11px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:20px;height:20px;"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
           </div>
           <div style="flex:1;position:relative;">
-            <div style="font-weight:700;font-size:0.88rem;color:var(--texto);">Mantén tu inventario bajo control</div>
-            <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.1rem;">Registra nuevos productos, actualiza el stock y realiza ventas rápidas desde aquí.</div>
+            <div style="font-weight:700;font-size:0.88rem;color:var(--texto);">Ver productos (${totalProds})</div>
+            <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.1rem;">Busca, ordena, edita y revisa el stock de cada producto.</div>
           </div>
           <svg viewBox="0 0 24 24" fill="none" stroke="var(--azul)" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;flex-shrink:0;position:relative;"><polyline points="9 18 15 12 9 6"/></svg>
         </div>
@@ -6795,23 +7511,23 @@ async function moduloTiendita() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
             Venta rápida
           </button>
-          <button onclick="abrirFormProducto()" style="width:auto;padding:0.6rem 1.1rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.83rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(26,63,166,0.3);display:flex;align-items:center;gap:0.45rem;">
+          ${SESSION.perfil?.rol==='admin' ? `<button onclick="abrirFormProducto()" style="width:auto;padding:0.6rem 1.1rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.83rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(26,63,166,0.3);display:flex;align-items:center;gap:0.45rem;">
             <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:15px;height:15px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Nuevo producto
-          </button>
+          </button>` : ''}
         </div>
       </div>
 
       <!-- 4 tarjetas métricas -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:1rem;margin-bottom:1.5rem;">
-        ${tiendaMetrica('Productos', totalProds, 'Activos en inventario', '#2563EB', '#EFF6FF', '0%',
+        ${tiendaMetrica('Productos', totalProds, 'Activos en inventario', '#2563EB', '#EFF6FF', badgeProds,
           '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>')}
-        ${tiendaMetrica('Stock total', stockTotal, 'Unidades', '#16A34A', '#F0FDF4', '12%',
+        ${tiendaMetrica('Stock total', stockTotal, 'Unidades', '#16A34A', '#F0FDF4', '',
           '<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>')}
-        ${tiendaMetrica('Valor en inventario (costo)', valorCosto, '', '#EA580C', '#FFF7ED', '8%',
+        ${tiendaMetrica('Valor en inventario (costo)', valorCosto, '', '#EA580C', '#FFF7ED', badgeCosto,
           '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
           true)}
-        ${tiendaMetrica('Valor de venta (potencial)', valorVenta, '', '#DC2626', '#FEF2F2', '8%',
+        ${tiendaMetrica('Valor de venta (potencial)', valorVenta, '', '#DC2626', '#FEF2F2', badgeMargen,
           '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
           true)}
       </div>
@@ -6953,7 +7669,7 @@ function verListaProductosMobile() {
               <span style="display:inline-block;background:#F1F5F9;color:#64748B;font-size:0.65rem;font-weight:600;padding:0.15rem 0.5rem;border-radius:999px;margin-top:0.15rem;">${escapeHtml(p.categoria||'general')}</span>
             </div>
             <span style="font-size:0.68rem;font-weight:700;color:${enStock?'#16A34A':'#DC2626'};background:${enStock?'#F0FDF4':'#FEF2F2'};padding:0.2rem 0.6rem;border-radius:999px;white-space:nowrap;flex-shrink:0;">● ${enStock?'En stock':'Sin stock'}</span>
-            <button onclick="abrirFormProducto('${p.id}')" style="padding:0.3rem 0.5rem;background:white;border:1px solid var(--gris-borde);border-radius:8px;cursor:pointer;color:var(--texto-sub);font-size:1rem;line-height:1;flex-shrink:0;">···</button>
+            <button onclick="accionesProducto('${p.id}', this)" style="padding:0.3rem 0.5rem;background:white;border:1px solid var(--gris-borde);border-radius:8px;cursor:pointer;color:var(--texto-sub);font-size:1rem;line-height:1;flex-shrink:0;">···</button>
           </div>
           <!-- Fila inferior: métricas -->
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.5rem;padding-top:0.65rem;border-top:1px solid var(--gris-borde);">
@@ -7005,11 +7721,11 @@ function verListaProductosMobile() {
 
     <!-- Filtros ordenar + filtro -->
     <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;">
-      <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);cursor:pointer;">
+      <div onclick="abrirOrdenTiendaMobile()" style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);cursor:pointer;">
         Ordenar por
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
-      <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);cursor:pointer;">
+      <div onclick="abrirFiltroTiendaMobile()" style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.85rem;font-size:0.78rem;color:var(--texto-sub);cursor:pointer;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
         Filtros
       </div>
@@ -7053,7 +7769,7 @@ function verListaProductosMobile() {
     </div>
 
     <!-- Botón ver reporte -->
-    <button style="width:100%;padding:0.85rem;background:white;border:1.5px solid var(--gris-borde);border-radius:14px;font-size:0.88rem;font-weight:600;color:var(--texto-sub);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-bottom:0.5rem;">
+    <button onclick="verReporteStockPDF()" style="width:100%;padding:0.85rem;background:white;border:1.5px solid var(--gris-borde);border-radius:14px;font-size:0.88rem;font-weight:600;color:var(--texto-sub);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:0.5rem;margin-bottom:0.5rem;">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Ver reporte de stock
     </button>
@@ -7074,22 +7790,59 @@ function filtrarTiendaCatMobile(cat) {
     btn.style.borderColor = activo ? 'transparent' : 'var(--gris-borde)';
     btn.style.boxShadow   = activo ? '0 4px 12px rgba(37,99,235,0.3)' : 'none';
   });
-  const filtrados = cat==='Todos' ? prods : prods.filter(p=>(p.categoria||'general')===cat);
-  const cont = document.getElementById('lista-prods-mobile');
-  if (cont && window._renderCardsTienda) cont.innerHTML = window._renderCardsTienda(filtrados);
+  // En la pantalla principal no hay lista: abrirla y aplicar la categoría elegida
+  if (!document.getElementById('lista-prods-mobile')) {
+    verListaProductosMobile();
+    setTimeout(() => { window._tiendaFiltrocat = cat; filtrarTiendaMobileLista(); }, 0);
+    return;
+  }
+  filtrarTiendaMobileLista(); // respeta búsqueda, orden y filtro de stock
 }
 
 function filtrarTiendaMobileLista(q) {
+  if (q !== undefined) window._tiendaQMob = q;
+  q = window._tiendaQMob || '';
   const prods  = window._productosCache || [];
   const filtro = window._tiendaFiltrocat || 'Todos';
-  let lista = filtro==='Todos' ? prods : prods.filter(p=>(p.categoria||'general')===filtro);
+  let lista = filtro==='Todos' ? [...prods] : prods.filter(p=>(p.categoria||'general')===filtro);
   if (q.trim()) lista = lista.filter(p => (p.nombre||'').toLowerCase().includes(q.toLowerCase()));
+  // Filtro por estado de stock y orden (menús "Filtros" y "Ordenar por")
+  const est = window._tiendaEstadoMob || '';
+  const stk = p => Number(p.stock_actual||0), min = p => Number(p.stock_minimo||0);
+  if (est === 'en_stock')   lista = lista.filter(p => stk(p) > min(p));
+  if (est === 'bajo_stock') lista = lista.filter(p => stk(p) > 0 && stk(p) <= min(p));
+  if (est === 'sin_stock')  lista = lista.filter(p => stk(p) <= 0);
+  const orden = window._tiendaOrdenMob || 'nombre';
+  const cmp = {
+    nombre:      (a,b) => (a.nombre||'').localeCompare(b.nombre||'', 'es'),
+    nombre_desc: (a,b) => (b.nombre||'').localeCompare(a.nombre||'', 'es'),
+    stock_asc:   (a,b) => stk(a) - stk(b),  stock_desc:  (a,b) => stk(b) - stk(a),
+    precio_asc:  (a,b) => a.precio_venta - b.precio_venta, precio_desc: (a,b) => b.precio_venta - a.precio_venta,
+  }[orden];
+  if (cmp) lista.sort(cmp);
   const cont = document.getElementById('lista-prods-mobile');
   if (cont && window._renderCardsTienda) cont.innerHTML = window._renderCardsTienda(lista);
 }
 
+function abrirOrdenTiendaMobile() {
+  const ops = [['nombre','Nombre A→Z'],['nombre_desc','Nombre Z→A'],['stock_asc','Stock: menor primero'],['stock_desc','Stock: mayor primero'],['precio_asc','Precio: menor primero'],['precio_desc','Precio: mayor primero']];
+  const act = window._tiendaOrdenMob || 'nombre';
+  abrirModal('Ordenar productos', `<div style="display:flex;flex-direction:column;gap:0.4rem;">
+    ${ops.map(([v,l]) => `<button type="button" onclick="window._tiendaOrdenMob='${v}';filtrarTiendaMobileLista();cerrarModal();" style="${ST.btnSec};text-align:left;${v===act?'border-color:var(--azul);color:var(--azul);font-weight:700;':''}">${l}</button>`).join('')}
+  </div>`, { ancho:'340px' });
+}
+
+function abrirFiltroTiendaMobile() {
+  const ops = [['','Todos'],['en_stock','En stock'],['bajo_stock','Stock bajo'],['sin_stock','Sin stock']];
+  const act = window._tiendaEstadoMob || '';
+  abrirModal('Filtrar por stock', `<div style="display:flex;flex-direction:column;gap:0.4rem;">
+    ${ops.map(([v,l]) => `<button type="button" onclick="window._tiendaEstadoMob='${v}';filtrarTiendaMobileLista();cerrarModal();" style="${ST.btnSec};text-align:left;${v===act?'border-color:var(--azul);color:var(--azul);font-weight:700;':''}">${l}</button>`).join('')}
+  </div>`, { ancho:'340px' });
+}
+
 function tiendaKpiMobile(label, valor, sub, color, bg, pct, icono, esSoles) {
-  const bajada = pct.startsWith('-') || pct.includes('8%'); // rojos bajan
+  const alerta = (pct||'').startsWith('!');
+  const texto  = alerta ? pct.slice(1) : (pct||'');
   return `
     <div class="card" style="padding:0.9rem;min-width:0;overflow:hidden;position:relative;">
       <div style="position:absolute;bottom:-8px;right:-8px;opacity:0.07;">
@@ -7099,13 +7852,7 @@ function tiendaKpiMobile(label, valor, sub, color, bg, pct, icono, esSoles) {
         <div style="width:34px;height:34px;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;">
           <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" style="width:17px;height:17px;">${icono}</svg>
         </div>
-        <span style="font-size:0.65rem;font-weight:700;color:${bajada?'#DC2626':'#16A34A'};display:flex;align-items:center;gap:0.15rem;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:10px;height:10px;">
-            ${bajada?'<polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/>'
-                    :'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>'}
-          </svg>
-          ${pct}
-        </span>
+        ${texto ? `<span style="font-size:0.62rem;font-weight:700;color:${alerta?'#DC2626':'#16A34A'};background:${alerta?'#FEF2F2':'#F0FDF4'};padding:0.12rem 0.4rem;border-radius:999px;white-space:nowrap;">${texto}</span>` : ''}
       </div>
       <div style="font-size:${esSoles?'1.1':'1.4'}rem;font-weight:700;color:var(--texto);line-height:1;">${esSoles?soles(valor):valor}</div>
       <div style="font-size:0.67rem;color:var(--texto-sub);margin-top:0.2rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}${sub?'<br>'+sub:''}</div>
@@ -7119,10 +7866,7 @@ function tiendaMetrica(label, valor, sub, color, bg, pct, icono, esSoles=false) 
         <div style="width:44px;height:44px;border-radius:12px;background:${bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;">
           <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:22px;height:22px;">${icono}</svg>
         </div>
-        <span style="font-size:0.72rem;font-weight:700;color:${color};background:${bg};padding:0.15rem 0.5rem;border-radius:999px;display:flex;align-items:center;gap:0.2rem;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" style="width:11px;height:11px;"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>
-          ${pct}
-        </span>
+        ${(pct||'') ? `<span style="font-size:0.72rem;font-weight:700;color:${pct.startsWith('!')?'#DC2626':'#16A34A'};background:${pct.startsWith('!')?'#FEF2F2':'#F0FDF4'};padding:0.15rem 0.5rem;border-radius:999px;white-space:nowrap;">${pct.startsWith('!')?pct.slice(1):pct}</span>` : ''}
       </div>
       <div style="font-size:1.65rem;font-weight:700;color:var(--texto);line-height:1.1;">${esSoles ? soles(valor) : valor}</div>
       <div style="font-size:0.75rem;color:var(--texto-sub);margin-top:0.2rem;">${label}${sub ? '<br><span style="font-size:0.7rem;">'+sub+'</span>' : ''}</div>
@@ -7184,10 +7928,10 @@ function renderFilasTienda(prods, cat) {
         </td>
         <td style="${tdCss()};text-align:right;">
           <div style="display:flex;align-items:center;gap:0.35rem;justify-content:flex-end;">
-            <button title="Editar" onclick="abrirFormProducto('${p.id}')" style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+            ${SESSION.perfil?.rol==='admin' ? `<button title="Editar" onclick="abrirFormProducto('${p.id}')" style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-            </button>
-            <button title="Más opciones" style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+            </button>` : ''}
+            <button title="Más opciones" onclick="accionesProducto('${p.id}', this)" style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
             </button>
           </div>
@@ -7223,7 +7967,7 @@ function verReporteStockPDF() {
     </tr>`;
   }).join('');
 
-  const ventana = window.open('','_blank','width=900,height=800');
+  const ventana = abrirVentanaImpresion(900, 800);
   ventana.document.write(`<!DOCTYPE html>
 <html lang="es"><head><meta charset="UTF-8">
 <title>Reporte de Stock</title>
@@ -7286,6 +8030,8 @@ function verReporteStockPDF() {
 }
 
 function filtrarTiendaCat(cat) {
+  // En celular no hay tabla: abrir la lista de productos filtrada
+  if (!document.getElementById('tienda-tbody')) { filtrarTiendaCatMobile(cat); return; }
   window._tiendaFiltrocat = cat;
   const prods = window._productosCache || [];
   // Actualizar botones activos
@@ -7333,6 +8079,9 @@ function filtrarTiendaBuscar() {
 }
 
 async function abrirFormProducto(prodId = null) {
+  if (SESSION.perfil?.rol !== 'admin') {
+    toast('Solo el administrador', 'Crear o editar productos y precios lo hace el dueño', 'warn'); return;
+  }
   let p = { nombre:'', categoria:'', precio_venta:'', costo_compra:'', stock_actual:0, stock_minimo:0 };
   if (prodId) {
     const { data } = await db.from('productos').select('*').eq('id', prodId).single();
@@ -7360,17 +8109,34 @@ async function abrirFormProducto(prodId = null) {
     const payload = {
       hotel_id: SESSION.hotel.id,
       nombre: $('#p-nombre').value.trim(),
-      categoria: $('#p-cat').value.trim() || 'general',
+      categoria: $('#p-cat').value.trim().toLowerCase() || 'general',
       precio_venta: parseFloat($('#p-precio').value)||0,
       costo_compra: parseFloat($('#p-costo').value)||0,
       stock_minimo: parseInt($('#p-min').value)||0,
     };
+    if (!payload.nombre) { toast('Escribe el nombre del producto', '', 'warn'); return; }
+    if (payload.precio_venta < 0 || payload.costo_compra < 0) { toast('Precio o costo inválido', '', 'warn'); return; }
+    if (payload.costo_compra > 0 && payload.precio_venta < payload.costo_compra &&
+        !confirm(`El precio de venta (${soles(payload.precio_venta)}) es menor que el costo (${soles(payload.costo_compra)}). Venderías a pérdida. ¿Guardar igual?`)) return;
     try {
       if (prodId) {
-        await db.from('productos').update(payload).eq('id', prodId);
+        const { error } = await db.from('productos').update(payload).eq('id', prodId);
+        if (error) throw error;
       } else {
-        payload.stock_actual = parseInt($('#p-stock').value)||0;
-        await db.from('productos').insert(payload);
+        // El stock lo mueve la BD (trigger sobre movimientos_inventario): se crea en 0
+        // y el stock inicial entra como movimiento, así queda en el kardex.
+        const stockInicial = Math.max(0, parseInt($('#p-stock').value)||0);
+        payload.stock_actual = 0;
+        const { data: nuevo, error } = await db.from('productos').insert(payload).select('id').single();
+        if (error) throw error;
+        if (stockInicial > 0) {
+          const { error: eMov } = await db.from('movimientos_inventario').insert({
+            hotel_id: SESSION.hotel.id, producto_id: nuevo.id, tipo:'entrada',
+            cantidad: stockInicial, costo_unitario: payload.costo_compra || null,
+            motivo: 'Stock inicial', usuario_id: SESSION.user.id,
+          });
+          if (eMov) throw eMov;
+        }
       }
       cerrarModal();
       toast(prodId?'Producto actualizado':'Producto creado', '', 'ok');
@@ -7394,7 +8160,7 @@ async function abrirReposicion() {
         <div style="${ST.grupo}"><label style="${ST.label}">Cantidad a ingresar *</label><input style="${ST.input}" id="repo-cant" type="number" min="1" required></div>
         <div style="${ST.grupo}"><label style="${ST.label}">Costo compra unit.</label><input style="${ST.input}" id="repo-costo" type="number" step="0.01"></div>
       </div>
-      <div style="${ST.grupo}"><label style="${ST.label}">Nuevo precio venta (opcional)</label><input style="${ST.input}" id="repo-precio" type="number" step="0.01"></div>
+      ${SESSION.perfil?.rol==='admin' ? `<div style="${ST.grupo}"><label style="${ST.label}">Nuevo precio venta (opcional)</label><input style="${ST.input}" id="repo-precio" type="number" step="0.01"></div>` : ''}
       <button type="submit" style="${ST.btnPri}">Registrar reposición</button>
     </form>
   `;
@@ -7403,7 +8169,7 @@ async function abrirReposicion() {
   const setDefaults = () => {
     const opt = $('#repo-prod').selectedOptions[0];
     $('#repo-costo').value = opt.dataset.costo;
-    $('#repo-precio').placeholder = 'Actual: '+opt.dataset.precio;
+    if ($('#repo-precio')) $('#repo-precio').placeholder = 'Actual: '+opt.dataset.precio;
   };
   $('#repo-prod').addEventListener('change', setDefaults); setDefaults();
 
@@ -7412,20 +8178,20 @@ async function abrirReposicion() {
     const prodId = $('#repo-prod').value;
     const cant = parseInt($('#repo-cant').value);
     const costo = parseFloat($('#repo-costo').value)||null;
-    const nuevoPrecio = parseFloat($('#repo-precio').value)||null;
+    const nuevoPrecio = parseFloat($('#repo-precio')?.value)||null;   // solo el admin ve este campo
     if (isNaN(cant) || cant<1) { toast('Cantidad inválida', '', 'warn'); return; }
     try {
       // Registrar entrada (el trigger suma stock automáticamente)
-      await db.from('movimientos_inventario').insert({
+      chk(await db.from('movimientos_inventario').insert({
         hotel_id: SESSION.hotel.id, producto_id: prodId, tipo:'entrada',
         cantidad: cant, costo_unitario: costo, motivo:'Reposición de mercadería',
         turno_caja_id: SESSION.turnoActivo?.id, usuario_id: SESSION.user.id,
-      });
+      }));
       // Actualizar costo/precio si cambió
       const upd = {};
       if (costo != null) upd.costo_compra = costo;
       if (nuevoPrecio != null) upd.precio_venta = nuevoPrecio;
-      if (Object.keys(upd).length) await db.from('productos').update(upd).eq('id', prodId);
+      if (Object.keys(upd).length) chk(await db.from('productos').update(upd).eq('id', prodId));
 
       cerrarModal();
       toast('Reposición registrada', `+${cant} unidades`, 'ok');
@@ -7478,7 +8244,11 @@ async function abrirVentaRapida() {
   $('#vr-add').addEventListener('click', () => {
     const opt = $('#vr-prod').selectedOptions[0];
     const id = opt.value;
+    const stock = Number(opt.dataset.stock) || 0;
     const exist = carrito.find(i=>i.id===id);
+    if ((exist ? exist.cant : 0) + 1 > stock) {
+      toast('Stock insuficiente', `Solo hay ${stock} unidad(es) de ${opt.dataset.nombre}`, 'warn'); return;
+    }
     if (exist) exist.cant++;
     else carrito.push({ id, nombre:opt.dataset.nombre, precio:parseFloat(opt.dataset.precio), cant:1 });
     render();
@@ -7491,28 +8261,28 @@ async function abrirVentaRapida() {
       const total = carrito.reduce((s,i)=>s+i.precio*i.cant,0);
       const metodo = $('#vr-metodo').value;
       // Crear venta
-      const { data: venta } = await db.from('ventas_directas').insert({
+      const { data: venta } = chk(await db.from('ventas_directas').insert({
         hotel_id: SESSION.hotel.id, turno_caja_id: SESSION.turnoActivo.id,
         total, metodo_pago: metodo, usuario_id: SESSION.user.id,
-      }).select('id').single();
+      }).select('id').single());
       // Items + descuento de stock
       for (const i of carrito) {
-        await db.from('items_venta_directa').insert({
+        chk(await db.from('items_venta_directa').insert({
           hotel_id: SESSION.hotel.id, venta_id: venta.id, producto_id: i.id,
           descripcion: i.nombre, cantidad: i.cant, precio_unitario: i.precio,
-        });
-        await db.from('movimientos_inventario').insert({
+        }));
+        chk(await db.from('movimientos_inventario').insert({
           hotel_id: SESSION.hotel.id, producto_id: i.id, tipo:'salida',
           cantidad: i.cant, precio_venta: i.precio, motivo:'Venta rápida',
           referencia_id: venta.id, turno_caja_id: SESSION.turnoActivo.id, usuario_id: SESSION.user.id,
-        });
+        }));
       }
       // Ingreso a caja
-      await db.from('movimientos_caja').insert({
+      chk(await db.from('movimientos_caja').insert({
         hotel_id: SESSION.hotel.id, turno_caja_id: SESSION.turnoActivo.id, tipo:'ingreso',
         concepto:`Venta rápida (${carrito.length} item)`, monto: total, metodo_pago: metodo,
         referencia_id: venta.id, referencia_tipo:'venta_directa', usuario_id: SESSION.user.id,
-      });
+      }));
       cerrarModal();
       toast('Venta cobrada', soles(total), 'ok');
       moduloTiendita();
@@ -7524,13 +8294,29 @@ async function abrirVentaRapida() {
 // ════════════════════════════════════════════════════════════
 //  HOTEL › LIMPIEZA (rol limpieza)
 // ════════════════════════════════════════════════════════════
-async function moduloLimpieza() {
-  skeleton();
+async function moduloLimpieza(silencioso = false) {
+  if (!silencioso) skeleton();
   try {
     const habs = await getHabitaciones();
+    // Primero las que hay que limpiar; luego el resto por número
+    habs.sort((a, b) => (b.estado === 'limpieza') - (a.estado === 'limpieza') || String(a.numero).localeCompare(String(b.numero), 'es', { numeric:true }));
+    const porLimpiar = habs.filter(h => h.estado === 'limpieza').length;
+    if (moduloActual !== 'limpieza' && silencioso) return;
     contenido().innerHTML = `
-      <div class="seccion-titulo">Estado de Habitaciones</div>
-      <div class="seccion-sub">Marca las habitaciones limpias</div>
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;">
+        <div>
+          <div class="seccion-titulo">Estado de Habitaciones</div>
+          <div class="seccion-sub">Marca las habitaciones limpias · se actualiza sola cada 30 s</div>
+        </div>
+        <button onclick="moduloLimpieza()" style="${ST.btnSec};display:flex;align-items:center;gap:0.4rem;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Actualizar
+        </button>
+      </div>
+      <div style="margin:0.5rem 0 1rem;padding:0.7rem 0.9rem;border-radius:12px;font-size:0.88rem;font-weight:600;
+        background:${porLimpiar ? '#FEFCE8' : '#F0FDF4'};color:${porLimpiar ? '#854D0E' : '#166534'};border:1px solid ${porLimpiar ? '#FDE68A' : '#BBF7D0'};">
+        ${porLimpiar ? `${porLimpiar} habitación${porLimpiar !== 1 ? 'es' : ''} por limpiar` : 'No hay habitaciones por limpiar'}
+      </div>
       <div style="display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:0.85rem;">
         ${habs.map(h => {
           const c = COLORES_ESTADO[h.estado];
@@ -7544,8 +8330,21 @@ async function moduloLimpieza() {
         }).join('')}
       </div>
     `;
+    // Refresco automático mientras esta pantalla esté abierta
+    clearInterval(window._limpiezaTimer);
+    window._limpiezaTimer = setInterval(() => {
+      if (moduloActual !== 'limpieza' || document.hidden) { if (moduloActual !== 'limpieza') clearInterval(window._limpiezaTimer); return; }
+      if (!document.getElementById('modal-generico')) moduloLimpieza(true);
+    }, 30000);
+    // Al volver a la app (celular desbloqueado / otra pestaña) se actualiza al instante
+    if (!window._limpiezaVis) {
+      window._limpiezaVis = true;
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden && moduloActual === 'limpieza' && !document.getElementById('modal-generico')) moduloLimpieza(true);
+      });
+    }
   } catch (err) {
-    contenido().innerHTML = errorBox('No se pudo cargar', err.message);
+    if (!silencioso) contenido().innerHTML = errorBox('No se pudo cargar', err.message);
   }
 }
 
@@ -7821,15 +8620,16 @@ async function moduloHabitacionConfig() {
               <input type="text" id="hab-buscar" placeholder="Buscar habitación…" oninput="filtrarHabsConfig()" style="border:none;background:none;outline:none;font-size:0.8rem;width:130px;font-family:inherit;color:var(--texto);">
             </div>
             <!-- Filtro tipo -->
-            <div style="display:flex;align-items:center;gap:0.4rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:9px;padding:0.45rem 0.8rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-              Todos los tipos
-              <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
-            </div>
+            <select id="hab-filtro-tipo" onchange="filtrarHabsConfig()" style="background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:9px;padding:0.45rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;">
+              <option value="">Todos los tipos</option>
+              ${(tipos||[]).map(t => `<option value="${t.id}">${escapeHtml(t.nombre)}</option>`).join('')}
+            </select>
             <!-- Filtro estado -->
-            <div style="display:flex;align-items:center;gap:0.4rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:9px;padding:0.45rem 0.8rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-              Todos los estados
-              <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
-            </div>
+            <select id="hab-filtro-estado" onchange="filtrarHabsConfig()" style="background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:9px;padding:0.45rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;">
+              <option value="">Todos los estados</option>
+              <option value="libre">Libre</option><option value="ocupada">Ocupada</option><option value="reservada">Reservada</option>
+              <option value="limpieza">Limpieza</option><option value="mantenimiento">Mantenimiento</option>
+            </select>
             <!-- Botón nueva habitación -->
             <button onclick="abrirFormHabitacion()" ${(tipos||[]).length===0?'disabled title="Crea un tipo primero"':''} style="width:auto;padding:0.5rem 1rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:9px;font-size:0.82rem;font-weight:600;cursor:pointer;box-shadow:0 4px 12px rgba(37,99,235,0.3);display:flex;align-items:center;gap:0.4rem;${(tipos||[]).length===0?'opacity:0.5;cursor:not-allowed;':''}">
               <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:14px;height:14px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -7857,7 +8657,7 @@ async function moduloHabitacionConfig() {
                     const ec = ESTADO_CFG[h.estado] || { dot:'#64748B', bg:'#F1F5F9', label: h.estado };
                     const tipoNombre = escapeHtml(h.tipos_habitacion?.nombre||'—');
                     return `
-                    <tr class="hab-cfg-fila" data-buscar="${(h.numero+' '+(h.tipos_habitacion?.nombre||'')+' '+(h.piso||'')).toLowerCase()}" style="border-bottom:1px solid var(--gris-borde);">
+                    <tr class="hab-cfg-fila" data-tipo="${h.tipo_habitacion_id||''}" data-estado="${h.estado||''}" data-buscar="${escapeHtml((h.numero+' '+(h.tipos_habitacion?.nombre||'')+' '+(h.piso||'')).toLowerCase())}" style="border-bottom:1px solid var(--gris-borde);">
                       <td style="${tdCss()};color:var(--texto-sub);">${i+1}</td>
                       <td style="${tdCss()};font-weight:700;font-size:1rem;">${escapeHtml(h.numero)}</td>
                       <td style="${tdCss()}">
@@ -7904,16 +8704,17 @@ async function moduloHabitacionConfig() {
 }
 
 function filtrarHabsConfig() {
-  const q = (document.getElementById('hab-buscar')?.value||'').toLowerCase();
-  document.querySelectorAll('.hab-cfg-fila').forEach(tr => {
-    tr.style.display = !q || tr.dataset.buscar.includes(q) ? '' : 'none';
-  });
+  const q    = (document.getElementById('hab-buscar')?.value||'').toLowerCase().trim();
+  const tipo = document.getElementById('hab-filtro-tipo')?.value || '';
+  const est  = document.getElementById('hab-filtro-estado')?.value || '';
+  aplicarFiltroFilas('.hab-cfg-fila', tr =>
+    (!q || tr.dataset.buscar.includes(q)) && (!tipo || tr.dataset.tipo === tipo) && (!est || tr.dataset.estado === est));
 }
 
 async function eliminarTipo(tipoId) {
   if (!confirm('¿Eliminar este tipo? Las habitaciones de este tipo perderán su referencia.')) return;
   try {
-    await db.from('tipos_habitacion').update({ activo: false }).eq('id', tipoId);
+    chk(await db.from('tipos_habitacion').update({ activo: false }).eq('id', tipoId));
     toast('Tipo eliminado','','ok');
     moduloHabitacionConfig();
   } catch(err) { toast('Error', err.message, 'error'); }
@@ -7948,8 +8749,8 @@ async function abrirFormTipo(tipoId=null) {
       tarifa_horas: parseFloat($('#t-thoras').value)||0,
     };
     try {
-      if (tipoId) await db.from('tipos_habitacion').update(payload).eq('id',tipoId);
-      else await db.from('tipos_habitacion').insert(payload);
+      if (tipoId) chk(await db.from('tipos_habitacion').update(payload).eq('id',tipoId));
+      else chk(await db.from('tipos_habitacion').insert(payload));
       cerrarModal(); toast(tipoId?'Tipo actualizado':'Tipo creado','','ok'); moduloHabitacionConfig();
     } catch(err){ toast('Error',err.message,'error'); }
   });
@@ -7984,8 +8785,8 @@ async function abrirFormHabitacion(habId=null) {
       piso:$('#h-piso').value.trim()||null, tipo_habitacion_id:$('#h-tipo').value,
     };
     try {
-      if (habId) await db.from('habitaciones').update(payload).eq('id',habId);
-      else await db.from('habitaciones').insert(payload);
+      if (habId) chk(await db.from('habitaciones').update(payload).eq('id',habId));
+      else chk(await db.from('habitaciones').insert(payload));
       cerrarModal(); toast(habId?'Habitación actualizada':'Habitación creada','','ok'); moduloHabitacionConfig();
     } catch(err){
       toast('Error', err.message.includes('duplicate')?'Ya existe una habitación con ese número':err.message,'error');
@@ -8091,7 +8892,7 @@ async function moduloPersonal() {
               style="width:100%;padding:0.65rem 0.75rem 0.65rem 2.35rem;border:1.5px solid var(--gris-borde);border-radius:12px;font-size:0.83rem;background:white;box-sizing:border-box;outline:none;font-family:inherit;"
               onfocus="this.style.borderColor='var(--azul)'" onblur="this.style.borderColor='var(--gris-borde)'">
           </div>
-          <button style="width:42px;height:42px;background:white;border:1.5px solid var(--gris-borde);border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <button title="Filtrar por rol" onclick="abrirFiltroPersonalMobile()" style="width:42px;height:42px;background:white;border:1.5px solid var(--gris-borde);border-radius:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
             <svg viewBox="0 0 24 24" fill="none" stroke="#64748B" stroke-width="2" stroke-linecap="round" style="width:17px;height:17px;"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
           </button>
         </div>
@@ -8154,11 +8955,11 @@ async function moduloPersonal() {
 
       <!-- 4 tarjetas métricas -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;">
-        ${persMetrica('Total de usuarios', totalUsuarios, '#2563EB', '#EFF6FF', '0%',
+        ${persMetrica('Total de usuarios', totalUsuarios, '#2563EB', '#EFF6FF', '',
           '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>')}
-        ${persMetrica('Usuarios activos', activos, '#16A34A', '#F0FDF4', '100%',
+        ${persMetrica('Usuarios activos', activos, '#16A34A', '#F0FDF4', totalUsuarios ? Math.round(activos*100/totalUsuarios)+'% del total' : '',
           '<circle cx="12" cy="12" r="10"/><polyline points="20 6 9 17 4 12"/>',true)}
-        ${persMetrica('Usuarios inactivos', inactivos, '#DC2626', '#FEF2F2', '0%',
+        ${persMetrica('Usuarios inactivos', inactivos, '#DC2626', '#FEF2F2', inactivos && totalUsuarios ? Math.round(inactivos*100/totalUsuarios)+'% del total' : '',
           '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>',false,true)}
         ${persMetrica('Roles asignados', roles, '#7C3AED', '#F5F3FF', '',
           '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',false,false,true)}
@@ -8170,17 +8971,9 @@ async function moduloPersonal() {
           <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <input type="text" id="pers-buscar" placeholder="Buscar por nombre, rol o email…" oninput="filtrarPersonal()" style="border:none;background:none;outline:none;font-size:0.83rem;width:100%;font-family:inherit;color:var(--texto);">
         </div>
-        <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.55rem 0.85rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-          <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-          Todos los roles
-          <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
-        </div>
-        <div style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.55rem 0.85rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-          <span style="width:8px;height:8px;border-radius:50%;background:#16A34A;flex-shrink:0;"></span>
-          Todos los estados
-          <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
-        </div>
-        <button style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.55rem 0.85rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;" onclick="toast('Próximamente','','info')">
+        <select id="pers-filtro-rol" onchange="filtrarPersonal()" style="background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.55rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;"><option value="">Todos los roles</option><option value="admin">Administrador</option><option value="recepcion">Recepción</option><option value="limpieza">Limpieza</option><option value="cocina">Cocina</option><option value="restaurante">Restaurante</option></select>
+        <select id="pers-filtro-estado" onchange="filtrarPersonal()" style="background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.55rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;"><option value="">Todos los estados</option><option value="activo">Activos</option><option value="inactivo">Inactivos</option></select>
+        <button style="display:flex;align-items:center;gap:0.4rem;background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.55rem 0.85rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;" onclick="exportarPersonalExcel()">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Exportar
         </button>
@@ -8196,7 +8989,7 @@ async function moduloPersonal() {
                 <th style="${thCss()}">NOMBRE</th>
                 <th style="${thCss()}">ROL</th>
                 <th style="${thCss()}">ESTADO</th>
-                <th style="${thCss()}">ÚLTIMO ACCESO</th>
+                <th style="${thCss()}">REGISTRADO</th>
                 <th style="${thCss()};text-align:right;">ACCIÓN</th>
               </tr>
             </thead>
@@ -8207,18 +9000,18 @@ async function moduloPersonal() {
                     const rc = ROL_COLOR[p.rol] || { bg:'#F1F5F9', color:'#64748B' };
                     const activo = p.activo !== false;
                     const nombre = p.nombre_completo || '—';
-                    const email  = p.rol + "@hotel.com";
+                    const email  = p.email || '';
                     const ultimoAcceso = p.created_at || null;
                     const iniciales = nombre.split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase()||'?';
                     return `
-                      <tr class="pers-fila" data-buscar="${(nombre+' '+p.rol+' '+email).toLowerCase()}" style="border-bottom:1px solid var(--gris-borde);">
+                      <tr class="pers-fila" data-rol="${p.rol||''}" data-activo="${activo?'1':'0'}" data-buscar="${escapeHtml((nombre+' '+p.rol+' '+rolLabelPersonal(p.rol)+' '+email).toLowerCase())}" style="border-bottom:1px solid var(--gris-borde);">
                         <td style="${tdCss()};color:var(--texto-sub);">${i+1}</td>
                         <td style="${tdCss()}">
                           <div style="display:flex;align-items:center;gap:0.75rem;">
                             <div style="width:38px;height:38px;border-radius:10px;background:rgba(37,99,235,0.1);color:var(--azul);font-weight:700;font-size:0.82rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${iniciales}</div>
                             <div>
                               <div style="font-weight:700;font-size:0.88rem;">${escapeHtml(nombre)}</div>
-                              <div style="font-size:0.72rem;color:var(--texto-sub);">${escapeHtml(email)}</div>
+                              <div style="font-size:0.72rem;color:var(--texto-sub);">${escapeHtml(email || rolLabelPersonal(p.rol))}</div>
                             </div>
                           </div>
                         </td>
@@ -8244,7 +9037,7 @@ async function moduloPersonal() {
                                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                               </button>`:''
                             }
-                            <button title="Más opciones" style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
+                            <button title="Más opciones" onclick="accionesEmpleado('${p.id}', this)" style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);" onmouseover="this.style.background='var(--gris-bg)'" onmouseout="this.style.background='white'">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg>
                             </button>
                           </div>
@@ -8284,7 +9077,7 @@ async function moduloPersonal() {
           <div style="font-weight:700;color:var(--texto);">Gestiona los accesos de tu equipo de forma segura</div>
           <div style="font-size:0.82rem;color:var(--texto-sub);">Asigna roles, controla permisos y mantén un registro de la actividad de cada usuario en el sistema.</div>
         </div>
-        <button onclick="toast('Próximamente','','info')" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:10px;padding:0.6rem 1.1rem;font-size:0.83rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;white-space:nowrap;">
+        <button onclick="verGuiaPermisos()" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:10px;padding:0.6rem 1.1rem;font-size:0.83rem;font-weight:600;color:var(--azul);cursor:pointer;position:relative;white-space:nowrap;">
           Ver guía de permisos
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
@@ -8309,7 +9102,7 @@ function persMetrica(label, valor, color, bg, pct, icono, esActivo=false, esInac
         <div style="flex:1;">
           <div style="display:flex;align-items:center;gap:0.5rem;">
             <span style="font-size:1.75rem;font-weight:700;color:var(--texto);line-height:1;">${valor}</span>
-            ${pct?`<span style="font-size:0.7rem;font-weight:700;color:${esInactivo?'#DC2626':color};background:${bg};padding:0.15rem 0.45rem;border-radius:999px;">${esInactivo?'↓':'↑'} ${pct}</span>`:''}
+            ${pct?`<span style="font-size:0.7rem;font-weight:700;color:${esInactivo?'#DC2626':color};background:${bg};padding:0.15rem 0.45rem;border-radius:999px;">${pct}</span>`:''}
           </div>
           <div style="font-size:0.77rem;color:var(--texto-sub);margin-top:0.15rem;">${label}</div>
         </div>
@@ -8331,7 +9124,7 @@ function renderPersonalCardsMobile(lista, ROL_COLOR) {
     const rc = ROL_COLOR[p.rol] || { bg:'#F1F5F9', color:'#64748B' };
     const activo = p.activo !== false;
     const nombre = p.nombre_completo || '—';
-    const email  = p.email || p.rol + '@hotel.com';
+    const email  = p.email || '';
     const iniciales = nombre.split(/\s+/).slice(0,2).map(x=>x[0]||'').join('').toUpperCase()||'?';
     const ultimoAcceso = p.updated_at || p.created_at;
     const fechaAcceso = ultimoAcceso
@@ -8346,7 +9139,7 @@ function renderPersonalCardsMobile(lista, ROL_COLOR) {
           <div style="width:40px;height:40px;border-radius:12px;background:${rc.bg};color:${rc.color};font-weight:700;font-size:0.88rem;display:flex;align-items:center;justify-content:center;flex-shrink:0;">${iniciales}</div>
           <div style="flex:1;min-width:0;">
             <div style="font-weight:700;font-size:0.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(nombre)}</div>
-            <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.1rem;">${escapeHtml(email)}</div>
+            <div style="font-size:0.72rem;color:var(--texto-sub);margin-top:0.1rem;">${escapeHtml(email || rolLabelPersonal(p.rol))}</div>
           </div>
           <div style="display:flex;align-items:center;gap:0.4rem;flex-shrink:0;">
             <span style="font-size:0.65rem;font-weight:700;color:${rc.color};background:${rc.bg};padding:0.2rem 0.6rem;border-radius:999px;text-transform:capitalize;">${escapeHtml(p.rol)}</span>
@@ -8358,7 +9151,7 @@ function renderPersonalCardsMobile(lista, ROL_COLOR) {
           </div>
         </div>
         <!-- Último acceso -->
-        <div style="font-size:0.7rem;color:var(--texto-sub);">Último acceso: ${fechaAcceso}</div>
+        <div style="font-size:0.7rem;color:var(--texto-sub);">Registrado: ${fechaAcceso}</div>
       </div>`;
   }).join('');
 }
@@ -8369,7 +9162,7 @@ function filtrarPersonalMobile(q) {
   const lista = window._personalCache || [];
   const RC    = window._personalRolColor || {};
   const filtrada = !q.trim() ? lista : lista.filter(p => {
-    const email = p.email || p.rol + '@hotel.com';
+    const email = p.email || '';
     return `${p.nombre_completo||''} ${p.rol||''} ${email}`.toLowerCase().includes(q.toLowerCase());
   });
   cont.innerHTML = renderPersonalCardsMobile(filtrada, RC);
@@ -8388,10 +9181,12 @@ function abrirOpcionesEmpleado(userId, nombre) {
 }
 
 function filtrarPersonal() {
-  const q = (document.getElementById('pers-buscar')?.value||'').toLowerCase();
-  document.querySelectorAll('.pers-fila').forEach(tr => {
-    tr.style.display = !q || tr.dataset.buscar.includes(q) ? '' : 'none';
-  });
+  const q   = (document.getElementById('pers-buscar')?.value||'').toLowerCase().trim();
+  const rol = document.getElementById('pers-filtro-rol')?.value || '';
+  const est = document.getElementById('pers-filtro-estado')?.value || '';
+  aplicarFiltroFilas('.pers-fila', tr =>
+    (!q || tr.dataset.buscar.includes(q)) && (!rol || tr.dataset.rol === rol)
+    && (!est || (est === 'activo') === (tr.dataset.activo === '1')));
 }
 
 // ── Crear empleado con login propio ─────────────────────────
@@ -8489,13 +9284,27 @@ async function moduloMiSuscripcion() {
       ? susc.ciclo_pago.charAt(0).toUpperCase()+susc.ciclo_pago.slice(1)
       : '—';
 
-    const beneficios = [
+    const esPro = (susc.plan||'basico') === 'pro';
+    const descPlan = esPro
+      ? 'Gestión completa: hotel, restaurante, cocina y reportes avanzados.'
+      : 'Ideal para pequeños alojamientos que buscan una gestión simple y eficiente.';
+    const beneficios = esPro ? [
+      'Rack, reservas y calendario',
+      'Caja por turnos con arqueo ciego',
+      'Tiendita e inventario',
+      'Restaurante y cocina (comandas)',
+      'Reportes completos y exportación a Excel',
+      'Soporte por WhatsApp',
+    ] : [
       'Gestión de reservas',
       'Control de huéspedes',
-      'Rack de habitaciones',
+      'Habitaciones, reservas y calendario',
       'Reportes básicos',
       'Soporte por WhatsApp',
     ];
+    const nomHotel = (SESSION.hotel?.nombre_comercial || '').trim();
+    const waRenovar = `https://wa.me/${WA_SUPERADMIN}?text=${encodeURIComponent(`Hola, quiero renovar mi suscripción de HospedaYa (hotel: ${nomHotel}, plan ${planLabel}).`)}`;
+    const waPlanes  = `https://wa.me/${WA_SUPERADMIN}?text=${encodeURIComponent(`Hola, quiero conocer los planes de HospedaYa (hotel: ${nomHotel}, plan actual ${planLabel}).`)}`;
 
     const esMobile = window.innerWidth <= 768;
 
@@ -8520,7 +9329,7 @@ async function moduloMiSuscripcion() {
             <span style="font-size:1.5rem;font-weight:800;color:var(--texto);">${escapeHtml(susc.nombre_comercial)}</span>
             <span style="font-size:0.65rem;font-weight:700;color:#2563EB;background:#EFF6FF;padding:0.2rem 0.6rem;border-radius:999px;letter-spacing:0.05em;">${planLabel}</span>
           </div>
-          <p style="font-size:0.78rem;color:var(--texto-sub);margin:0 0 1rem;">Ideal para pequeños alojamientos que buscan una gestión simple y eficiente.</p>
+          <p style="font-size:0.78rem;color:var(--texto-sub);margin:0 0 1rem;">${descPlan}</p>
 
           <!-- Filas de detalles -->
           ${filaDetalleSusc('calendar','Ciclo de pago', cicloStr)}
@@ -8544,12 +9353,12 @@ async function moduloMiSuscripcion() {
             </div>
           </div>
           <div style="font-size:0.8rem;color:var(--texto-sub);">
-            Tu plan se renovará el<br><strong style="color:var(--texto);font-size:0.9rem;">${venceStr}</strong>
+            Vence el<br><strong style="color:var(--texto);font-size:0.9rem;">${venceStr}</strong>
           </div>
         </div>
 
         <!-- Botón WhatsApp -->
-        <a href="${WA_URL}" target="_blank" rel="noopener"
+        <a href="${waRenovar}" target="_blank" rel="noopener"
           style="width:100%;display:flex;align-items:center;justify-content:center;gap:0.65rem;background:#16A34A;color:white;text-decoration:none;padding:0.9rem;border-radius:14px;font-weight:700;font-size:0.95rem;box-shadow:0 4px 16px rgba(22,163,74,0.35);margin-bottom:0.75rem;box-sizing:border-box;">
           <svg viewBox="0 0 24 24" fill="white" style="width:20px;height:20px;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/></svg>
           Renovar por WhatsApp →
@@ -8624,7 +9433,7 @@ async function moduloMiSuscripcion() {
             <span style="font-size:1.75rem;font-weight:800;color:var(--texto);">${escapeHtml(susc.nombre_comercial)}</span>
             <span style="font-size:0.72rem;font-weight:700;color:#2563EB;background:#EFF6FF;padding:0.25rem 0.75rem;border-radius:999px;letter-spacing:0.05em;">${planLabel}</span>
           </div>
-          <p style="font-size:0.85rem;color:var(--texto-sub);margin:0 0 1.5rem;">Ideal para pequeños alojamientos que buscan una gestión simple y eficiente.</p>
+          <p style="font-size:0.85rem;color:var(--texto-sub);margin:0 0 1.5rem;">${descPlan}</p>
 
           <!-- Detalles del plan + arco circular -->
           <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap;">
@@ -8651,14 +9460,14 @@ async function moduloMiSuscripcion() {
                 </div>
               </div>
               <div style="font-size:0.8rem;color:var(--texto-sub);text-align:center;margin-top:0.5rem;">
-                Tu plan se renovará el<br><strong style="color:var(--texto);">${venceStr}</strong>
+                Vence el<br><strong style="color:var(--texto);">${venceStr}</strong>
               </div>
             </div>
           </div>
 
           <!-- Botones -->
           <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1.5rem;align-items:center;">
-            <a href="${WA_URL}" target="_blank" rel="noopener" style="flex:1;display:flex;align-items:center;justify-content:center;gap:0.6rem;background:#16A34A;color:white;text-decoration:none;padding:0.85rem 1.25rem;border-radius:12px;font-weight:700;font-size:0.92rem;min-width:200px;">
+            <a href="${waRenovar}" target="_blank" rel="noopener" style="flex:1;display:flex;align-items:center;justify-content:center;gap:0.6rem;background:#16A34A;color:white;text-decoration:none;padding:0.85rem 1.25rem;border-radius:12px;font-weight:700;font-size:0.92rem;min-width:200px;">
               <svg viewBox="0 0 24 24" fill="white" style="width:20px;height:20px;"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M11.999 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.186 21.9l4.83-1.225A9.953 9.953 0 0 0 12 22c5.522 0 10-4.478 10-10S17.521 2 11.999 2z"/></svg>
               Renovar por WhatsApp →
             </a>
@@ -8679,7 +9488,7 @@ async function moduloMiSuscripcion() {
             <div style="flex:1;">
               <div style="font-weight:700;font-size:0.92rem;margin-bottom:0.25rem;">¿Necesitas más funciones?</div>
               <div style="font-size:0.78rem;color:var(--texto-sub);margin-bottom:0.75rem;">Descubre nuestros planes y elige el que mejor se adapte a tu hotel.</div>
-              <a href="${WA_URL}" target="_blank" style="display:inline-flex;align-items:center;gap:0.4rem;background:white;border:1.5px solid var(--azul);border-radius:9px;padding:0.45rem 0.9rem;font-size:0.8rem;font-weight:600;color:var(--azul);text-decoration:none;cursor:pointer;">
+              <a href="${waPlanes}" target="_blank" style="display:inline-flex;align-items:center;gap:0.4rem;background:white;border:1.5px solid var(--azul);border-radius:9px;padding:0.45rem 0.9rem;font-size:0.8rem;font-weight:600;color:var(--azul);text-decoration:none;cursor:pointer;">
                 Ver planes <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:12px;height:12px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
               </a>
             </div>
@@ -8718,7 +9527,7 @@ async function moduloMiSuscripcion() {
           <div style="font-weight:700;font-size:1.05rem;color:var(--texto);">Haz crecer tu hotel</div>
           <div style="font-size:0.82rem;color:var(--texto-sub);">Optimiza tu operación con más herramientas y funcionalidades.</div>
         </div>
-        <a href="${WA_URL}" target="_blank" style="display:flex;align-items:center;gap:0.5rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;text-decoration:none;padding:0.7rem 1.35rem;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;position:relative;white-space:nowrap;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
+        <a href="${waPlanes}" target="_blank" style="display:flex;align-items:center;gap:0.5rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;text-decoration:none;padding:0.7rem 1.35rem;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;position:relative;white-space:nowrap;box-shadow:0 4px 14px rgba(37,99,235,0.3);">
           Conocer otros planes
           <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:14px;height:14px;"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </a>
@@ -8767,7 +9576,7 @@ async function moduloReportes() {
   skeleton();
   const hoy = new Date();
   const hace30 = new Date(hoy.getTime() - 29 * 24 * 3600 * 1000);
-  const fmt = d => d.toISOString().slice(0, 10);
+  const fmt = d => fechaLocalISO(d);
   window._repDesde = fmt(hace30);
   window._repHasta = fmt(hoy);
   window._repPeriodo = 'Últimos 30 días';
@@ -8798,10 +9607,10 @@ async function moduloReportes() {
       <div style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--gris-borde);border-radius:12px;padding:0.65rem 0.9rem;margin-bottom:0.85rem;cursor:pointer;" onclick="this.querySelector('#rep-desde-m').showPicker?.()">
         <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;flex-shrink:0;"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
         <input type="date" id="rep-desde-m" value="${fmt(hace30)}" onchange="window._repDesde=this.value"
-          style="border:none;background:none;outline:none;font-size:0.83rem;font-weight:600;color:var(--texto);font-family:inherit;flex:1;">
+          style="border:none;background:none;outline:none;font-size:0.83rem;font-weight:600;color:var(--texto);font-family:inherit;flex:1;min-width:0;width:100%;">
         <span style="color:var(--texto-sub);font-size:0.83rem;">-</span>
         <input type="date" id="rep-hasta-m" value="${fmt(hoy)}" onchange="window._repHasta=this.value"
-          style="border:none;background:none;outline:none;font-size:0.83rem;font-weight:600;color:var(--texto);font-family:inherit;flex:1;">
+          style="border:none;background:none;outline:none;font-size:0.83rem;font-weight:600;color:var(--texto);font-family:inherit;flex:1;min-width:0;width:100%;">
         <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;flex-shrink:0;"><polyline points="6 9 12 15 18 9"/></svg>
       </div>
 
@@ -8897,7 +9706,7 @@ function setRepPeriodo(periodo) {
   window._repPeriodo = periodo;
   const hoy = new Date();
   let desde, hasta = new Date(hoy);
-  const fmt = d => d.toISOString().slice(0,10);
+  const fmt = d => fechaLocalISO(d);
 
   if (periodo === 'Hoy') {
     desde = new Date(hoy); desde.setHours(0,0,0,0);
@@ -8939,20 +9748,48 @@ async function generarReporte() {
   if (!cont) return;
   cont.innerHTML = `<div style="display:flex;align-items:center;gap:0.75rem;color:var(--texto-sub);padding:2rem;justify-content:center;"><div class="spinner" style="width:22px;height:22px;"></div> Generando…</div>`;
 
-  // Helper sparkline disponible en toda la función
-  const sparkline = (color) => `<svg viewBox="0 0 80 30" preserveAspectRatio="none" style="position:absolute;bottom:0;left:0;right:0;width:100%;height:50px;opacity:0.3;"><polyline points="0,25 20,18 40,22 60,10 80,5" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
   const desde = window._repDesde || document.getElementById('rep-desde')?.value;
   const hasta = window._repHasta || document.getElementById('rep-hasta')?.value;
   const desdeISO = new Date(desde+'T00:00:00').toISOString();
   const hastaISO = new Date(hasta+'T23:59:59').toISOString();
+  // Período anterior de igual duración (para comparar tendencias reales)
+  const duracionMs  = new Date(hastaISO) - new Date(desdeISO);
+  const prevDesdeISO = new Date(new Date(desdeISO) - duracionMs - 1000).toISOString();
+  const prevHastaISO = new Date(new Date(desdeISO) - 1000).toISOString();
+
+  // Serie diaria real (una posición por día del rango) para las mini-gráficas
+  const diasRango = [];
+  for (let d = new Date(desde+'T00:00:00'); d <= new Date(hasta+'T00:00:00'); d.setDate(d.getDate()+1)) {
+    diasRango.push(fechaLocalISO(d));
+  }
+  const serieDiaria = (lista, valFn) => {
+    const acc = {};
+    (lista||[]).forEach(x => { const v = valFn(x); if (v == null) return; const k = fechaLocalISO(x.created_at); acc[k] = (acc[k]||0) + v; });
+    return diasRango.map(k => acc[k] || 0);
+  };
+  const sparkline = (color, valores = []) => {
+    if (valores.length < 2 || !valores.some(v => v !== 0)) return '';
+    const max = Math.max(...valores), min = Math.min(0, ...valores), rango = (max - min) || 1;
+    const pts = valores.map((v, i) => `${(i/(valores.length-1)*80).toFixed(1)},${(28 - ((v-min)/rango)*24).toFixed(1)}`).join(' ');
+    return `<svg viewBox="0 0 80 30" preserveAspectRatio="none" style="position:absolute;bottom:0;left:0;right:0;width:100%;height:50px;opacity:0.3;"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke"/></svg>`;
+  };
+  // Variación vs período anterior: '↑ 12%', '↓ 5%', 'Nuevo' o '' (sin datos para comparar)
+  const tendencia = (actual, anterior) => {
+    if (!anterior) return actual > 0 ? 'Nuevo' : '';
+    const pct = Math.round(((actual - anterior) / Math.abs(anterior)) * 100);
+    return pct === 0 ? '= 0%' : (pct > 0 ? '↑ ' : '↓ ') + Math.abs(pct) + '%';
+  };
 
   try {
-    const [{ data: movs }, { data: estadias }, { data: comps }, { data: ventasRest }] = await Promise.all([
+    const [{ data: movs }, { data: estadias }, { data: comps }, { data: ventasRest },
+           { data: prevMovs }, { data: prevEst }, { data: prevComps }] = await Promise.all([
       db.from('movimientos_caja').select('tipo,monto,metodo_pago,concepto,created_at').eq('hotel_id',SESSION.hotel.id).gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
       db.from('estadias_reservas').select('modalidad,tarifa_aplicada,created_at,estado,fecha_entrada,fecha_salida_real').eq('hotel_id',SESSION.hotel.id).gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
-      db.from('comprobantes_sunat').select('tipo_doc,total,estado,created_at').eq('hotel_id',SESSION.hotel.id).gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
+      db.from('comprobantes_sunat').select('tipo_doc,total,estado_sunat,created_at').eq('hotel_id',SESSION.hotel.id).gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
       db.from('ventas_directas').select('*, items_venta_directa(*)').eq('hotel_id',SESSION.hotel.id).like('notas','MESA:%').gte('created_at',desdeISO).lte('created_at',hastaISO).limit(5000),
+      db.from('movimientos_caja').select('tipo,monto').eq('hotel_id',SESSION.hotel.id).gte('created_at',prevDesdeISO).lte('created_at',prevHastaISO).limit(5000),
+      db.from('estadias_reservas').select('modalidad').eq('hotel_id',SESSION.hotel.id).gte('created_at',prevDesdeISO).lte('created_at',prevHastaISO).limit(5000),
+      db.from('comprobantes_sunat').select('total,estado_sunat').eq('hotel_id',SESSION.hotel.id).gte('created_at',prevDesdeISO).lte('created_at',prevHastaISO).limit(5000),
     ]);
 
     // ── Totales ──
@@ -8966,8 +9803,15 @@ async function generarReporte() {
     const totalCheckins = (estadias||[]).length;
     const porNoche = (estadias||[]).filter(e=>e.modalidad==='noche').length;
     const porHoras = (estadias||[]).filter(e=>e.modalidad==='horas').length;
-    const totalFacturado = (comps||[]).filter(c=>c.estado!=='ANULADO').reduce((s,c)=>s+Number(c.total),0);
+    const totalFacturado = (comps||[]).filter(c=>c.estado_sunat!=='ANULADO').reduce((s,c)=>s+Number(c.total),0);
     const totalMetodos = Object.values(porMetodo).reduce((a,b)=>a+b,0);
+
+    // ── Período anterior y series diarias (tarjetas) ──
+    let prevIngresos = 0, prevEgresos = 0;
+    (prevMovs||[]).forEach(m => { if (m.tipo==='ingreso') prevIngresos+=Number(m.monto); else if (m.tipo==='egreso') prevEgresos+=Number(m.monto); });
+    const prevFacturado = (prevComps||[]).filter(c=>c.estado_sunat!=='ANULADO').reduce((s,c)=>s+Number(c.total),0);
+    const serieIngresos = serieDiaria(movs, m => m.tipo==='ingreso' ? Number(m.monto) : null);
+    const serieEgresos  = serieDiaria(movs, m => m.tipo==='egreso'  ? Number(m.monto) : null);
 
     // ── Ventas restaurante ──
     const ventasRestCobradas = (ventasRest||[]).filter(v=>(v.notas||'').includes('ESTADO:cobrada'));
@@ -8990,7 +9834,7 @@ async function generarReporte() {
     // Movimientos de caja del restaurante por día
     const porDiaRest = {};
     ventasRestCobradas.forEach(v=>{
-      const dia = v.created_at.slice(0,10);
+      const dia = fechaLocalISO(v.created_at);
       porDiaRest[dia] = (porDiaRest[dia]||0) + Number(v.total||0);
     });
     const estadiasConFecha = (estadias||[]).filter(e=>e.fecha_entrada&&e.fecha_salida_real);
@@ -9011,7 +9855,7 @@ async function generarReporte() {
     const porDia = {};
     (movs||[]).forEach(m => {
       if (m.tipo!=='ingreso') return;
-      const dia = m.created_at.slice(0,10);
+      const dia = fechaLocalISO(m.created_at);
       porDia[dia]=(porDia[dia]||0)+Number(m.monto);
     });
     const dias = Object.keys(porDia).sort();
@@ -9019,7 +9863,7 @@ async function generarReporte() {
 
     // ── Comprobantes por tipo ──
     const cTipos = { factura:{ cnt:0, total:0 }, boleta:{ cnt:0, total:0 } };
-    (comps||[]).filter(c=>c.estado!=='ANULADO').forEach(c => {
+    (comps||[]).filter(c=>c.estado_sunat!=='ANULADO').forEach(c => {
       if (cTipos[c.tipo_doc]) { cTipos[c.tipo_doc].cnt++; cTipos[c.tipo_doc].total+=Number(c.total); }
     });
 
@@ -9093,12 +9937,12 @@ async function generarReporte() {
     cont.innerHTML = `
       <!-- 6 tarjetas métricas con sparkline -->
       <div style="display:grid;grid-template-columns:${window.innerWidth<=768?'1fr 1fr':'repeat(auto-fit,minmax(200px,1fr))'};gap:${window.innerWidth<=768?'0.6rem':'1rem'};margin-bottom:1.25rem;">
-        ${repKpiMobile(soles(ingresos),'Ingresos totales','#16A34A','#F0FDF4','↑ 12%',sparkline('#16A34A'),'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>')}
-        ${repKpiMobile(soles(egresos),'Egresos','#DC2626','#FEF2F2','↓ 0%',sparkline('#DC2626'),'<line x1="5" y1="12" x2="19" y2="12"/>')}
-        ${repKpiMobile(soles(neto),'Neto','#2563EB','#EFF6FF','↑ 12%',sparkline('#2563EB'),'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>')}
-        ${repKpiMobile(soles(totalFacturado),'Total facturado','#7C3AED','#F5F3FF','↑ 8%',sparkline('#7C3AED'),'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>')}
-        ${repKpiMobile(totalCheckins,'Check-ins','#EA580C','#FFF7ED','↓ 0%',sparkline('#EA580C'),'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>')}
-        ${repKpiMobile(porNoche+' / '+porHoras,'Por noche / horas','#0891B2','#F0F9FF','↑ 0%',sparkline('#0891B2'),'<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>')}
+        ${repKpiMobile(soles(ingresos),'Ingresos totales','#16A34A','#F0FDF4',tendencia(ingresos,prevIngresos),sparkline('#16A34A',serieIngresos),'<polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/>')}
+        ${repKpiMobile(soles(egresos),'Egresos','#DC2626','#FEF2F2',tendencia(egresos,prevEgresos),sparkline('#DC2626',serieEgresos),'<line x1="5" y1="12" x2="19" y2="12"/>',true)}
+        ${repKpiMobile(soles(neto),'Neto','#2563EB','#EFF6FF',tendencia(neto,prevIngresos-prevEgresos),sparkline('#2563EB',serieIngresos.map((v,i)=>v-serieEgresos[i])),'<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>')}
+        ${repKpiMobile(soles(totalFacturado),'Total facturado','#7C3AED','#F5F3FF',tendencia(totalFacturado,prevFacturado),sparkline('#7C3AED',serieDiaria(comps,c=>c.estado_sunat!=='ANULADO'?Number(c.total):null)),'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>')}
+        ${repKpiMobile(totalCheckins,'Check-ins','#EA580C','#FFF7ED',tendencia(totalCheckins,(prevEst||[]).length),sparkline('#EA580C',serieDiaria(estadias,()=>1)),'<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>')}
+        ${repKpiMobile(porNoche+' / '+porHoras,'Por noche / horas','#0891B2','#F0F9FF','',sparkline('#0891B2',serieDiaria(estadias,()=>1)),'<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>')}
       </div>
 
       <!-- Gráficos: barras + dona -->
@@ -9107,9 +9951,9 @@ async function generarReporte() {
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
             <div style="font-weight:700;font-size:1rem;">Ingresos por día</div>
-            <div style="display:flex;align-items:center;gap:0.4rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:8px;padding:0.35rem 0.75rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-              Ingresos <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
-            </div>
+            <select id="rep-serie-dias" onchange="cambiarSerieReporte(this.value)" style="background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:8px;padding:0.35rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;">
+              <option value="ingresos">Ingresos</option><option value="egresos">Egresos</option><option value="neto">Neto</option>
+            </select>
           </div>
           ${dias.length
             ? '<canvas id="chart-dias" style="max-height:240px;"></canvas>'
@@ -9120,9 +9964,9 @@ async function generarReporte() {
         <div class="card">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
             <div style="font-weight:700;font-size:1rem;">Ingresos por método de pago</div>
-            <div style="display:flex;align-items:center;gap:0.4rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:8px;padding:0.35rem 0.75rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;">
-              Por monto <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:12px;height:12px;"><polyline points="6 9 12 15 18 9"/></svg>
-            </div>
+            <select id="rep-dona-modo" onchange="cambiarModoDona(this.value)" style="background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:8px;padding:0.35rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;">
+              <option value="monto">Por monto</option><option value="cantidad">Por cantidad</option>
+            </select>
           </div>
           <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap;">
             <div style="position:relative;width:160px;height:160px;flex-shrink:0;">
@@ -9282,19 +10126,33 @@ async function generarReporte() {
         const meses = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic'];
         return `${parseInt(dd)} ${meses[parseInt(m)-1]}`;
       });
+      // Series por día (mismos días del gráfico) para el selector Ingresos/Egresos/Neto
+      const egrDia = {};
+      (movs||[]).forEach(m => { if (m.tipo==='egreso') { const d = fechaLocalISO(m.created_at); egrDia[d] = (egrDia[d]||0) + Number(m.monto); } });
+      window._repSeries = {
+        ingresos: valDias,
+        egresos:  dias.map(d => egrDia[d] || 0),
+        neto:     dias.map((d,i) => valDias[i] - (egrDia[d] || 0)),
+      };
       if (dias.length) {
-        new Chart(document.getElementById('chart-dias'), {
+        window._chartDias = new Chart(document.getElementById('chart-dias'), {
           type: 'bar',
           data: { labels: labelsDia, datasets: [{ data: valDias, backgroundColor: '#2563EB', borderRadius: 5, barThickness: 'flex', maxBarThickness: 28 }] },
           options: { plugins:{ legend:{ display:false } }, scales:{ y:{ beginAtZero:true, ticks:{ font:{ size:10 } } }, x:{ ticks:{ font:{ size:10 }, maxRotation:45 } } } },
         });
       }
-      // Dona de métodos
-      new Chart(document.getElementById('chart-metodos'), {
+      // Dona de métodos (monto o cantidad de cobros)
+      const cantMetodo = { efectivo:0, yape:0, plin:0, transferencia:0, mixto:0 };
+      (movs||[]).forEach(m => { if (m.tipo==='ingreso') { const k = m.metodo_pago || 'efectivo'; cantMetodo[k] = (cantMetodo[k]||0) + 1; } });
+      window._repDona = {
+        monto:    [porMetodo.efectivo,porMetodo.yape,porMetodo.plin,porMetodo.transferencia,porMetodo.mixto],
+        cantidad: [cantMetodo.efectivo,cantMetodo.yape,cantMetodo.plin,cantMetodo.transferencia,cantMetodo.mixto],
+      };
+      window._chartMetodos = new Chart(document.getElementById('chart-metodos'), {
         type: 'doughnut',
         data: {
           labels: ['Efectivo','Yape','Plin','Transferencia','Mixto'],
-          datasets: [{ data:[porMetodo.efectivo,porMetodo.yape,porMetodo.plin,porMetodo.transferencia,porMetodo.mixto], backgroundColor:['#16A34A','#7C3AED','#0891B2','#EA580C','#64748B'], borderWidth:3, borderColor:'#fff' }],
+          datasets: [{ data: window._repDona.monto, backgroundColor:['#16A34A','#7C3AED','#0891B2','#EA580C','#64748B'], borderWidth:3, borderColor:'#fff' }],
         },
         options: { plugins:{ legend:{ display:false } }, cutout:'68%' },
       });
@@ -9304,14 +10162,38 @@ async function generarReporte() {
   }
 }
 
-// KPI adaptado para móvil (compacto con porcentaje arriba derecha)
-function repKpiMobile(valor, label, color, bg, pct, sparkline, icono) {
-  const esMobile = window.innerWidth <= 768;
-  if (!esMobile) return repKpi(valor, label, color, bg, pct.replace(/[↑↓ ]/g,''), sparkline, icono);
+function cambiarSerieReporte(serie) {
+  const ch = window._chartDias, s = window._repSeries;
+  if (!ch || !s?.[serie]) return;
+  ch.data.datasets[0].data = s[serie];
+  ch.data.datasets[0].backgroundColor = { ingresos:'#2563EB', egresos:'#DC2626', neto:'#16A34A' }[serie];
+  ch.update();
+}
 
-  const sube = pct.includes('↑');
-  const pctColor = sube ? '#16A34A' : '#DC2626';
-  const pctBg    = sube ? '#F0FDF4' : '#FEF2F2';
+function cambiarModoDona(modo) {
+  const ch = window._chartMetodos, d = window._repDona;
+  if (!ch || !d?.[modo]) return;
+  ch.data.datasets[0].data = d[modo];
+  ch.update();
+  // Actualizar el total del centro y la leyenda de montos
+  const tot = d[modo].reduce((a,b)=>a+b,0);
+  const centro = document.getElementById('chart-metodos')?.parentElement?.querySelector('div > div');
+  if (centro) centro.textContent = modo === 'monto' ? soles(tot) : `${tot} cobros`;
+}
+
+// KPI adaptado para móvil (compacto con porcentaje arriba derecha)
+// Colores del indicador de tendencia. `invertir` = subir es malo (p. ej. egresos).
+function repColorTendencia(pct, invertir) {
+  const sube = pct.includes('↑') || pct === 'Nuevo', baja = pct.includes('↓');
+  if (!sube && !baja) return ['#64748B', '#F1F5F9'];
+  return (sube !== !!invertir) ? ['#16A34A', '#F0FDF4'] : ['#DC2626', '#FEF2F2'];
+}
+
+function repKpiMobile(valor, label, color, bg, pct, sparkline, icono, invertir = false) {
+  const esMobile = window.innerWidth <= 768;
+  if (!esMobile) return repKpi(valor, label, color, bg, pct, sparkline, icono, invertir);
+
+  const [pctColor, pctBg] = repColorTendencia(pct, invertir);
 
   return `
     <div class="card" style="padding:0.85rem;min-width:0;overflow:hidden;position:relative;">
@@ -9320,21 +10202,22 @@ function repKpiMobile(valor, label, color, bg, pct, sparkline, icono) {
         <div style="width:32px;height:32px;border-radius:9px;background:${bg};display:flex;align-items:center;justify-content:center;">
           <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;">${icono}</svg>
         </div>
-        <span style="font-size:0.65rem;font-weight:700;color:${pctColor};background:${pctBg};padding:0.15rem 0.4rem;border-radius:999px;">${pct}</span>
+        ${pct ? `<span title="vs. período anterior" style="font-size:0.65rem;font-weight:700;color:${pctColor};background:${pctBg};padding:0.15rem 0.4rem;border-radius:999px;">${pct}</span>` : ''}
       </div>
       <div style="font-size:${valor.toString().startsWith('S/')?'1.05':'1.35'}rem;font-weight:700;color:var(--texto);line-height:1.1;">${valor}</div>
       <div style="font-size:0.65rem;color:var(--texto-sub);margin-top:0.15rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${label}</div>
     </div>`;
 }
 
-function repKpi(valor, label, color, bg, pct, sparkline, icono) {
+function repKpi(valor, label, color, bg, pct, sparkline, icono, invertir = false) {
+  const [pctColor, pctBg] = repColorTendencia(pct || '', invertir);
   return `
     <div style="background:white;border:1px solid var(--gris-borde);border-radius:14px;padding:1.1rem;position:relative;overflow:hidden;">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:0.4rem;">
         <div style="width:36px;height:36px;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;">
           <svg viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;">${icono}</svg>
         </div>
-        <span style="font-size:0.7rem;font-weight:700;color:${color};background:${bg};padding:0.15rem 0.45rem;border-radius:999px;">${pct==='0%'?'↓ '+pct:'↑ '+pct}</span>
+        ${pct ? `<span title="vs. período anterior" style="font-size:0.7rem;font-weight:700;color:${pctColor};background:${pctBg};padding:0.15rem 0.45rem;border-radius:999px;">${pct}</span>` : ''}
       </div>
       <div style="font-size:1.25rem;font-weight:700;color:var(--texto);line-height:1.1;">${valor}</div>
       <div style="font-size:0.73rem;color:var(--texto-sub);margin-top:0.15rem;">${label}</div>
@@ -9359,14 +10242,10 @@ function indCard(label, valor, sub, color, bg, icono) {
 function exportarReporteCSV() {
   const d = window._repData;
   if (!d) { toast('Genera el reporte primero','','warn'); return; }
-  const cab = ['Tipo','Monto','Método','Fecha'];
-  const lineas = (d.movs||[]).map(m=>[m.tipo,m.monto,m.metodo_pago||'',m.created_at].map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(','));
-  const csv = '\uFEFF'+[cab.join(','),...lineas].join('\n');
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8;'}));
-  a.download=`reporte_${window._repDesde}_${window._repHasta}.csv`; a.click();
-  toast('Exportado','CSV descargado','ok');
+  const cab = ['Fecha','Tipo','Concepto','Método','Monto (S/)'];
+  const filas = (d.movs||[]).map(m=>[fechaHora(m.created_at), m.tipo, m.concepto||'', m.metodo_pago||'efectivo', Number(m.monto||0)]);
+  exportarExcel(`reporte_${window._repDesde}_${window._repHasta}`, cab, filas, 'Movimientos');
 }
-
 function repTarjeta(label, valor, color) {
   return `
     <div class="card" style="padding:1rem; border-top:3px solid ${color};">
@@ -9408,7 +10287,7 @@ async function moduloRestaurante() {
     _restCartaFija = cartaFija || [];
 
     // Menú del día (fecha de hoy)
-    const hoy = new Date().toISOString().slice(0,10);
+    const hoy = fechaLocalISO();
     const { data: menuDia } = await db.from('menu_dia')
       .select('*').eq('hotel_id', SESSION.hotel.id).eq('fecha', hoy).eq('activo', true).order('nombre');
     _restMenuDia = menuDia || [];
@@ -9521,9 +10400,29 @@ function renderRestaurante(mesasOcupadas) {
         </div>
       </div>
 
+      <!-- Buscar mesa (antes solo existía en PC) -->
+      <div style="display:flex;align-items:center;gap:0.5rem;background:white;border:1px solid var(--gris-borde);border-radius:12px;padding:0.6rem 0.85rem;margin-bottom:0.85rem;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" inputmode="numeric" placeholder="Buscar mesa…" oninput="filtrarMesasRest(this.value)" style="border:none;background:none;outline:none;font-size:0.9rem;width:100%;font-family:inherit;color:var(--texto);">
+      </div>
+
       <!-- Grid 2×2 de mesas -->
       <div id="rest-mesas-container">
         ${renderMesasMobile(mesasOcupadas, window._restFiltro)}
+      </div>
+
+      <!-- Accesos (antes en celular no había forma de llegar a carta, menú, comprobantes ni mesas) -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-top:1rem;">
+        ${[
+          ['abrirGestionMenuDia()', '🍽️', 'Menú del día', `${_restMenuDia.length} platos hoy`, '#F0FDF4'],
+          ['abrirGestionCarta()', '🥤', 'Carta fija', `${_restCartaFija.length} productos`, '#FFF7ED'],
+          ['abrirComprobantesRestaurante()', '🧾', 'Comprobantes', 'Boletas y facturas', '#EFF6FF'],
+          ['abrirConfigRestaurante()', '⚙️', 'Configurar mesas', `${_restNumMesas} mesas`, '#F1F5F9'],
+        ].map(([fn, ic, t, s, bg]) => `
+          <button onclick="${fn}" style="padding:0.8rem;background:white;border:1.5px solid var(--gris-borde);border-radius:14px;cursor:pointer;text-align:left;display:flex;align-items:center;gap:0.6rem;min-width:0;">
+            <div style="width:36px;height:36px;border-radius:10px;background:${bg};display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:1.1rem;">${ic}</div>
+            <div style="min-width:0;"><div style="font-weight:700;font-size:0.82rem;color:var(--texto);">${t}</div><div style="font-size:0.68rem;color:var(--texto-sub);">${s}</div></div>
+          </button>`).join('')}
       </div>
     `;
     return;
@@ -9544,8 +10443,8 @@ function renderRestaurante(mesasOcupadas) {
         </div>
       </div>
       <button onclick="abrirConfigRestaurante()" style="display:flex;align-items:center;gap:0.5rem;padding:0.7rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:10px;font-size:0.88rem;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(37,99,235,0.3);white-space:nowrap;">
-        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:16px;height:16px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        Nueva reserva
+        <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><line x1="17.5" y1="14" x2="17.5" y2="21"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>
+        Configurar mesas
       </button>
     </div>
 
@@ -9689,7 +10588,7 @@ function renderMesasRest(mesasOcupadas, filtro='Todos', vista='grilla') {
   // Filtrar
   const filtradas = filtro === 'Todos' || filtro === 'Todas' ? mesas
     : filtro === 'Libres'     ? mesas.filter(m => !m.ocupada)
-    : filtro === 'Ocupadas'   ? mesas.filter(m => m.ocupada && !m.enPrep && !m.enListo)
+    : filtro === 'Ocupadas'   ? mesas.filter(m => m.ocupada)   // igual que el contador: toda mesa con pedido
     : filtro === 'Preparando' ? mesas.filter(m => m.enPrep)
     : mesas;
 
@@ -9763,7 +10662,7 @@ function renderMesasMobile(mesasOcupadas, filtro='Todas') {
 
   const filtradas = filtro==='Todas'||filtro==='Todos' ? mesas
     : filtro==='Libres'     ? mesas.filter(m=>!m.ocupada)
-    : filtro==='Ocupadas'   ? mesas.filter(m=>m.ocupada&&!m.enPrep&&!m.enListo)
+    : filtro==='Ocupadas'   ? mesas.filter(m=>m.ocupada)
     : filtro==='Preparando' ? mesas.filter(m=>m.enPrep)
     : mesas;
 
@@ -9841,7 +10740,9 @@ function filtrarMesasRest(q) {
   const cont = document.getElementById('rest-mesas-container');
   if (!cont) return;
   if (!q.trim()) {
-    cont.innerHTML = renderMesasRest(mesasOcupadas, window._restFiltro, window._restVista);
+    cont.innerHTML = window.innerWidth <= 768
+      ? renderMesasMobile(mesasOcupadas, window._restFiltro)
+      : renderMesasRest(mesasOcupadas, window._restFiltro, window._restVista);
     return;
   }
   // Filtrar por número de mesa
@@ -9985,7 +10886,7 @@ async function imprimirComprobanteRest(compId) {
 
   const { data: hotel } = await db.from('hoteles').select('razon_social,ruc,direccion,nombre_comercial').eq('id',SESSION.hotel.id).single();
 
-  const ventana = window.open('','_blank','width=400,height=600');
+  const ventana = abrirVentanaImpresion(400, 600);
   ventana.document.write(`
     <!DOCTYPE html>
     <html>
@@ -10051,7 +10952,7 @@ async function imprimirComprobanteRest(compId) {
 
 // ── Configuración: número de mesas ──────────────────────────
 function abrirConfigRestaurante() {
-  abrirModal('Configuración del restaurante', `
+  abrirModal('Configurar mesas', `
     <div style="${ST.grupo}">
       <label style="${ST.label}">Número de mesas (1 - 30)</label>
       <input style="${ST.input}" id="cfg-num-mesas" type="number" min="1" max="30" value="${_restNumMesas}">
@@ -10064,12 +10965,17 @@ function abrirConfigRestaurante() {
 }
 
 async function guardarConfigRestaurante() {
-  const num = parseInt(document.getElementById('cfg-num-mesas')?.value) || 12;
-  if (num < 1 || num > 30) { toast('Entre 1 y 30 mesas','','warn'); return; }
+  const num = parseInt(document.getElementById('cfg-num-mesas')?.value);   // antes: 0 o vacío guardaba 12
+  if (isNaN(num) || num < 1 || num > 30) { toast('Entre 1 y 30 mesas','','warn'); return; }
+  // No se pueden quitar mesas que tienen un pedido abierto (desaparecería sin cobrarse)
+  const conPedido = (_restComandas||[]).map(c => parseInt((c.notas||'').match(/MESA:(\d+)/)?.[1])).filter(n => n > num);
+  if (conPedido.length) {
+    toast('Hay mesas con pedido', `Cobra o cancela primero la Mesa ${Math.max(...conPedido)} (no puedes bajar a ${num} mesas)`, 'warn'); return;
+  }
   try {
-    await db.from('config_restaurante').upsert({
+    chk(await db.from('config_restaurante').upsert({
       hotel_id: SESSION.hotel.id, num_mesas: num, updated_at: new Date().toISOString()
-    }, { onConflict: 'hotel_id' });
+    }, { onConflict: 'hotel_id' }));
     _restNumMesas = num;
     cerrarModal();
     toast('✅ Guardado', `${num} mesas configuradas`, 'ok');
@@ -10093,48 +10999,60 @@ function abrirGestionCarta() {
             <div style="font-size:1.25rem;">${p.categoria==='bebidas'?'🥤':p.categoria==='snacks'?'🍿':p.categoria==='postres'?'🍰':'🍽️'}</div>
             <div style="flex:1;">
               <div style="font-weight:600;font-size:0.88rem;">${escapeHtml(p.nombre)}</div>
-              <div style="font-size:0.72rem;color:var(--texto-sub);">${escapeHtml(p.categoria)}</div>
+              <div style="font-size:0.72rem;color:var(--texto-sub);">${escapeHtml(CATS_CARTA[p.categoria] || p.categoria)}</div>
             </div>
             <div style="font-weight:700;color:var(--verde);">${soles(p.precio)}</div>
-            <button onclick="eliminarProductoCarta('${p.id}')" style="background:none;border:none;cursor:pointer;color:var(--rojo);font-size:1rem;padding:0.25rem;">✕</button>
+            <button onclick="abrirFormProductoCarta('${p.id}')" title="Editar" style="background:none;border:1px solid var(--gris-borde);border-radius:7px;cursor:pointer;color:var(--texto-sub);padding:0.25rem 0.4rem;display:flex;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </button>
+            <button onclick="eliminarProductoCarta('${p.id}')" title="Eliminar" style="background:none;border:none;cursor:pointer;color:var(--rojo);font-size:1rem;padding:0.25rem;">✕</button>
           </div>`).join('')}
     </div>
   `, { ancho:'480px' });
 }
 
-function abrirFormProductoCarta() {
-  const cats = ['bebidas','snacks','postres','otros'];
-  abrirModal('Agregar a carta fija', `
+const CATS_CARTA = { entradas:'Entradas', platos:'Platos de fondo', bebidas:'Bebidas', postres:'Postres', snacks:'Snacks', otros:'Otros' };
+
+function abrirFormProductoCarta(id = null) {
+  const p = id ? _restCartaFija.find(x => x.id === id) : null;
+  abrirModal(p ? 'Editar producto de la carta' : 'Agregar a carta fija', `
     <div style="${ST.grupo}"><label style="${ST.label}">Nombre *</label>
-      <input style="${ST.input}" id="carta-nombre" placeholder="Ej: Gaseosa 500ml">
+      <input style="${ST.input}" id="carta-nombre" placeholder="Ej: Lomo saltado" value="${escapeHtml(p?.nombre||'')}">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.65rem;">
       <div style="${ST.grupo}"><label style="${ST.label}">Categoría</label>
         <select style="${ST.input}" id="carta-cat">
-          ${cats.map(c=>`<option value="${c}">${c.charAt(0).toUpperCase()+c.slice(1)}</option>`).join('')}
+          ${Object.entries(CATS_CARTA).map(([v,l])=>`<option value="${v}" ${p?.categoria===v?'selected':''}>${l}</option>`).join('')}
         </select>
       </div>
       <div style="${ST.grupo}"><label style="${ST.label}">Precio *</label>
-        <input style="${ST.input}" id="carta-precio" type="number" step="0.50" min="0" placeholder="5.00">
+        <input style="${ST.input}" id="carta-precio" type="number" step="0.50" min="0" placeholder="15.00" value="${p?.precio ?? ''}">
       </div>
     </div>
-    <button style="${ST.btnPri}" onclick="guardarProductoCarta()">Agregar a la carta</button>
+    <button style="${ST.btnPri}" onclick="guardarProductoCarta(${p ? `'${p.id}'` : 'null'})">${p ? 'Guardar cambios' : 'Agregar a la carta'}</button>
   `, { ancho:'400px' });
 }
 
-async function guardarProductoCarta() {
+async function guardarProductoCarta(id = null) {
   const nombre = document.getElementById('carta-nombre')?.value?.trim();
   const precio = parseFloat(document.getElementById('carta-precio')?.value);
-  const cat    = document.getElementById('carta-cat')?.value || 'bebidas';
+  const cat    = document.getElementById('carta-cat')?.value || 'otros';
   if (!nombre) { toast('Escribe el nombre','','warn'); return; }
   if (!precio || precio <= 0) { toast('Escribe el precio','','warn'); return; }
   try {
-    const { data } = await db.from('carta_restaurante').insert({
-      hotel_id: SESSION.hotel.id, nombre, categoria: cat, precio
-    }).select().single();
-    _restCartaFija.push(data);
+    if (id) {
+      const { data, error } = await db.from('carta_restaurante').update({ nombre, categoria: cat, precio }).eq('id', id).select().single();
+      if (error) throw error;
+      _restCartaFija = _restCartaFija.map(x => x.id === id ? data : x);
+    } else {
+      const { data, error } = await db.from('carta_restaurante').insert({
+        hotel_id: SESSION.hotel.id, nombre, categoria: cat, precio
+      }).select().single();
+      if (error) throw error;
+      _restCartaFija.push(data);
+    }
     cerrarModal();
-    toast('✅ Producto agregado', nombre, 'ok');
+    toast(id ? '✅ Producto actualizado' : '✅ Producto agregado', nombre, 'ok');
     abrirGestionCarta();
   } catch(err) { toast('Error', err.message, 'error'); }
 }
@@ -10142,7 +11060,7 @@ async function guardarProductoCarta() {
 async function eliminarProductoCarta(id) {
   if (!confirm('¿Eliminar este producto de la carta?')) return;
   try {
-    await db.from('carta_restaurante').delete().eq('id', id);
+    chk(await db.from('carta_restaurante').delete().eq('id', id));
     _restCartaFija = _restCartaFija.filter(p=>p.id!==id);
     abrirGestionCarta();
     toast('Producto eliminado','','ok');
@@ -10198,11 +11116,11 @@ async function guardarPlatoMenuDia() {
   const precio = parseFloat(document.getElementById('menu-precio')?.value);
   if (!nombre) { toast('Escribe el nombre','','warn'); return; }
   if (!precio || precio <= 0) { toast('Escribe el precio','','warn'); return; }
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = fechaLocalISO();
   try {
-    const { data } = await db.from('menu_dia').insert({
+    const { data: data } = chk(await db.from('menu_dia').insert({
       hotel_id: SESSION.hotel.id, fecha: hoy, nombre, descripcion: desc||null, precio
-    }).select().single();
+    }).select().single());
     _restMenuDia.push(data);
     cerrarModal();
     toast('✅ Plato agregado', nombre, 'ok');
@@ -10213,7 +11131,7 @@ async function guardarPlatoMenuDia() {
 async function eliminarPlato(id) {
   if (!confirm('¿Eliminar este plato del menú?')) return;
   try {
-    await db.from('menu_dia').delete().eq('id', id);
+    chk(await db.from('menu_dia').delete().eq('id', id));
     _restMenuDia = _restMenuDia.filter(p=>p.id!==id);
     abrirGestionMenuDia();
     toast('Plato eliminado','','ok');
@@ -10222,9 +11140,9 @@ async function eliminarPlato(id) {
 
 async function limpiarMenuDia() {
   if (!confirm('¿Limpiar todos los platos del menú de hoy?')) return;
-  const hoy = new Date().toISOString().slice(0,10);
+  const hoy = fechaLocalISO();
   try {
-    await db.from('menu_dia').delete().eq('hotel_id', SESSION.hotel.id).eq('fecha', hoy);
+    chk(await db.from('menu_dia').delete().eq('hotel_id', SESSION.hotel.id).eq('fecha', hoy));
     _restMenuDia = [];
     abrirGestionMenuDia();
     toast('Menú del día limpiado','Listo para el nuevo menú','ok');
@@ -10235,9 +11153,14 @@ async function limpiarMenuDia() {
 async function abrirMesaRestaurante(numMesa) {
   _restMesaActual = numMesa;
   const comanda = _restComandas.find(c=>(c.notas||'').includes('MESA:'+numMesa));
-  _restPedidoActual = comanda
-    ? (comanda.items_venta_directa||[]).map(it=>({ producto_id:it.producto_id, descripcion:it.descripcion, cantidad:it.cantidad, precio:Number(it.precio_unitario), subtotal:Number(it.subtotal||0), tipo:it.tipo||'carta' }))
-    : [];
+  _restPedidoActual = [];
+  (comanda?.items_venta_directa||[]).forEach(it => {
+    // Unir líneas repetidas del mismo producto (mismo nombre y precio)
+    const precio = Number(it.precio_unitario);
+    const ya = _restPedidoActual.find(x => x.descripcion === it.descripcion && x.precio === precio);
+    if (ya) { ya.cantidad += it.cantidad; ya.subtotal = ya.cantidad * ya.precio; }
+    else _restPedidoActual.push({ producto_id:it.producto_id, descripcion:it.descripcion, cantidad:it.cantidad, precio, subtotal:Number(it.subtotal||it.cantidad*precio||0), tipo:it.tipo||'carta' });
+  });
   const { data: estadias } = await db.from('estadias_reservas')
     .select('id, habitaciones(numero), huespedes(nombres,apellidos)')
     .eq('hotel_id', SESSION.hotel.id).eq('estado','activa');
@@ -10263,7 +11186,7 @@ function renderComandaMesa(numMesa, comandaExistente, estadias) {
         <h1 style="font-size:1.4rem;font-weight:700;color:var(--texto);margin:0;">Mesa ${numMesa}</h1>
         ${enPrep?'<span style="background:#FEFCE8;color:#CA8A04;font-size:0.75rem;font-weight:700;padding:0.2rem 0.65rem;border-radius:999px;">🔥 En cocina</span>':''}
       </div>
-      <div style="font-weight:700;font-size:1.15rem;color:var(--verde);">Total: ${soles(totalPedido)}</div>
+      <div style="font-weight:700;font-size:1.15rem;color:var(--verde);">Total: <span id="pedido-total-top">${soles(totalPedido)}</span></div>
     </div>
 
     <div style="display:grid;grid-template-columns:1fr 320px;gap:1.25rem;align-items:start;" class="susc-grid">
@@ -10273,7 +11196,7 @@ function renderComandaMesa(numMesa, comandaExistente, estadias) {
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:1rem;">
           <button onclick="filtrarCarta('todos',this)" class="cat-carta" style="padding:0.4rem 0.85rem;border-radius:999px;font-size:0.8rem;font-weight:600;background:var(--azul);color:white;border:1.5px solid transparent;cursor:pointer;">Todos</button>
           ${_restMenuDia.length?`<button onclick="filtrarCarta('menu',this)" class="cat-carta" style="padding:0.4rem 0.85rem;border-radius:999px;font-size:0.8rem;font-weight:600;background:white;color:var(--texto-sub);border:1.5px solid var(--gris-borde);cursor:pointer;">🍽️ Menú del día</button>`:''}
-          ${[...new Set(_restCartaFija.map(p=>p.categoria||'otros'))].map(c=>`<button onclick="filtrarCarta('${escapeHtml(c)}',this)" class="cat-carta" style="padding:0.4rem 0.85rem;border-radius:999px;font-size:0.8rem;font-weight:600;background:white;color:var(--texto-sub);border:1.5px solid var(--gris-borde);cursor:pointer;">${c==='bebidas'?'🥤 ':c==='snacks'?'🍿 ':c==='postres'?'🍰 ':''}${escapeHtml(c.charAt(0).toUpperCase()+c.slice(1))}</button>`).join('')}
+          ${[...new Set(_restCartaFija.map(p=>p.categoria||'otros'))].map(c=>`<button onclick="filtrarCarta('${escapeHtml(c)}',this)" class="cat-carta" style="padding:0.4rem 0.85rem;border-radius:999px;font-size:0.8rem;font-weight:600;background:white;color:var(--texto-sub);border:1.5px solid var(--gris-borde);cursor:pointer;">${c==='bebidas'?'🥤 ':c==='snacks'?'🍿 ':c==='postres'?'🍰 ':''}${escapeHtml(CATS_CARTA[c] || (c.charAt(0).toUpperCase()+c.slice(1)))}</button>`).join('')}
         </div>
 
         <!-- Sin productos -->
@@ -10367,12 +11290,16 @@ function renderItemsPedido() {
 
 function agregarAlPedido(productoId, nombre, precio, tipo) {
   const key = productoId; // 'menu_UUID' o 'carta_UUID'
-  const idx = _restPedidoActual.findIndex(i=>i.producto_id===key);
+  // Los ítems recargados de una comanda no traen la clave: se reconocen por nombre y precio
+  const idx = _restPedidoActual.findIndex(i=>i.producto_id===key ||
+    (!i.producto_id && i.descripcion===nombre && Number(i.precio)===Number(precio)));
+  if (idx>=0) _restPedidoActual[idx].producto_id = key;
   if (idx>=0) { _restPedidoActual[idx].cantidad++; _restPedidoActual[idx].subtotal=_restPedidoActual[idx].cantidad*_restPedidoActual[idx].precio; }
   else { _restPedidoActual.push({ producto_id:key, descripcion:nombre, cantidad:1, precio:Number(precio), subtotal:Number(precio), tipo:tipo||'carta' }); }
   const el=document.getElementById('pedido-items'); const tot=document.getElementById('pedido-total');
   if(el) el.innerHTML=renderItemsPedido();
   if(tot) tot.textContent=soles(_restPedidoActual.reduce((s,i)=>s+i.subtotal,0));
+  const top=document.getElementById('pedido-total-top'); if(top) top.textContent=soles(_restPedidoActual.reduce((s,i)=>s+i.subtotal,0));
 }
 
 function cambiarCantidad(idx, delta) {
@@ -10382,6 +11309,7 @@ function cambiarCantidad(idx, delta) {
   const el=document.getElementById('pedido-items'); const tot=document.getElementById('pedido-total');
   if(el) el.innerHTML=renderItemsPedido();
   if(tot) tot.textContent=soles(_restPedidoActual.reduce((s,i)=>s+i.subtotal,0));
+  const top=document.getElementById('pedido-total-top'); if(top) top.textContent=soles(_restPedidoActual.reduce((s,i)=>s+i.subtotal,0));
 }
 
 function filtrarCarta(cat, btn) {
@@ -10394,23 +11322,27 @@ async function enviarComandaCocina(numMesa, comandaId) {
   if (!_restPedidoActual.length) { toast('Pedido vacío','Agrega al menos un plato','warn'); return; }
   try {
     const total = _restPedidoActual.reduce((s,i)=>s+i.subtotal,0);
-    const hora = new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
-    const notas = `MESA:${numMesa}|ESTADO:preparando|HORA:${hora}`;
+    // Al actualizar una comanda se conserva la hora en que se pidió (cocina ve el tiempo real de espera)
+    const previa = (comandaId && comandaId!=='null') ? (_restComandas||[]).find(c => c.id === comandaId) : null;
+    const hora = (previa?.notas||'').match(/HORA:([^|]+)/)?.[1]
+      || new Date().toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
+    // Entra (o vuelve, si se agregaron platos) a cocina como "Nueva"; el cocinero la pasa a "Preparando" y luego a "Listo"
+    const notas = `MESA:${numMesa}|ESTADO:abierta|HORA:${hora}`;
     if (comandaId && comandaId!=='null') {
-      await db.from('ventas_directas').update({ total, notas }).eq('id', comandaId);
-      await db.from('items_venta_directa').delete().eq('venta_id', comandaId);
+      chk(await db.from('ventas_directas').update({ total, notas }).eq('id', comandaId));
+      chk(await db.from('items_venta_directa').delete().eq('venta_id', comandaId));
     } else {
-      const { data: nv } = await db.from('ventas_directas').insert({
+      const { data: nv } = chk(await db.from('ventas_directas').insert({
         hotel_id: SESSION.hotel.id, turno_caja_id: SESSION.turnoActivo?.id||null,
         total, metodo_pago: null, notas, usuario_id: SESSION.user.id,
-      }).select().single();
+      }).select().single());
       comandaId = nv.id;
     }
-    await db.from('items_venta_directa').insert(_restPedidoActual.map(it=>({
+    chk(await db.from('items_venta_directa').insert(_restPedidoActual.map(it=>({
       hotel_id: SESSION.hotel.id, venta_id: comandaId,
       producto_id: null, descripcion: it.descripcion,
       cantidad: it.cantidad, precio_unitario: it.precio,
-    })));
+    }))));
     toast('✅ Comanda enviada',`Mesa ${numMesa} → Cocina`,'ok');
     moduloRestaurante();
   } catch(err) { toast('Error',err.message,'error'); }
@@ -10424,7 +11356,10 @@ async function abrirCobroMesa(numMesa, comandaId, tipo) {
     abrirModal('Cargar a habitación', `
       <div style="${ST.grupo}"><label style="${ST.label}">Habitación</label>
         <select style="${ST.input}" id="hab-cargo-sel">
-          ${estadias.map(e=>`<option value="${e.id}">Hab. ${e.habitaciones?.numero} — ${e.huespedes?.nombres} ${e.huespedes?.apellidos}</option>`).join('')||'<option>Sin estadías activas</option>'}
+          ${estadias.map(e=>{
+            const nom = [e.huespedes?.nombres, e.huespedes?.apellidos].filter(Boolean).join(' ');
+            return `<option value="${e.id}">Hab. ${escapeHtml(e.habitaciones?.numero||'?')}${nom ? ' — ' + escapeHtml(nom) : ''}</option>`;
+          }).join('')||'<option value="">Sin habitaciones ocupadas</option>'}
         </select>
       </div>
       <div style="text-align:center;background:var(--gris-bg);border-radius:10px;padding:1rem;margin:0.75rem 0;">
@@ -10434,15 +11369,6 @@ async function abrirCobroMesa(numMesa, comandaId, tipo) {
       <button style="${ST.btnPri}" onclick="confirmarCargoHabitacion('${comandaId}',${numMesa})">Confirmar cargo</button>
     `, { ancho:'420px' });
   } else {
-    // Verificar si tiene config SUNAT para ofrecer comprobante
-    let cfgSunat = null;
-    try {
-      const { data } = await db.from('configuracion_sunat')
-        .select('serie_boleta,correlativo_boleta,serie_factura,correlativo_factura,ruc_emisor')
-        .eq('hotel_id', SESSION.hotel.id).single();
-      cfgSunat = data;
-    } catch(_) {}
-
     abrirModal(`💳 Cobrar — Mesa ${numMesa}`, `
       <!-- Total -->
       <div style="text-align:center;background:var(--gris-bg);border-radius:12px;padding:1.25rem;margin-bottom:1.1rem;">
@@ -10543,62 +11469,54 @@ function notasCobrada(notas) {
 async function confirmarCobroMesa(comandaId, numMesa, total) {
   const metodo     = document.getElementById('rest-metodo')?.value||'efectivo';
   const comprobante= document.getElementById('rest-comprobante')?.value||'ninguno';
+  // Validar ANTES de cobrar (para no cobrar y luego fallar el comprobante)
+  if (!SESSION.turnoActivo) { toast('Abre tu turno de caja', 'Ve a Caja / Turno para poder cobrar', 'warn'); return; }
+  if (comprobante === 'factura') {
+    const ruc = document.getElementById('cli-ruc')?.value?.trim() || '';
+    if (!/^(10|15|17|20)\d{9}$/.test(ruc)) { toast('RUC inválido', 'Debe tener 11 dígitos y empezar con 10, 15, 17 o 20', 'warn'); return; }
+    if (!document.getElementById('cli-razon')?.value?.trim()) { toast('Falta la razón social', '', 'warn'); return; }
+  }
+  if (comprobante === 'boleta' && Number(total) >= 700 && !(document.getElementById('cli-num-doc')?.value?.trim())) {
+    toast('Falta el documento del cliente', 'SUNAT exige DNI en boletas desde S/ 700', 'warn'); return;
+  }
+  // Si se escribe un documento en la boleta, debe ser válido (antes pasaba "12")
+  const docBoleta = document.getElementById('cli-num-doc')?.value?.trim() || '';
+  if (comprobante === 'boleta' && docBoleta) {
+    const errDoc = validarDocumento(document.getElementById('cli-tipo-doc')?.value || 'DNI', docBoleta);
+    if (errDoc) { toast('Documento inválido', errDoc, 'warn'); return; }
+  }
   try {
     // 1. Movimiento de caja
-    await db.from('movimientos_caja').insert({
+    chk(await db.from('movimientos_caja').insert({
       hotel_id: SESSION.hotel.id, turno_caja_id: SESSION.turnoActivo.id,
       tipo:'ingreso', concepto:`Restaurante Mesa ${numMesa}`,
       monto: total, metodo_pago: metodo, referencia_tipo:'venta_directa',
       referencia_id:(comandaId&&comandaId!=='null')?comandaId:null,
       usuario_id: SESSION.user.id,
-    });
+    }));
 
     // 2. Marcar comanda como cobrada (incluye estado listo)
     if (comandaId&&comandaId!=='null') {
       const { data:cv } = await db.from('ventas_directas').select('notas').eq('id',comandaId).single();
-      await db.from('ventas_directas').update({
+      chk(await db.from('ventas_directas').update({
         metodo_pago: metodo,
         notas: notasCobrada(cv?.notas)
-      }).eq('id', comandaId);
+      }).eq('id', comandaId));
     }
 
     // 3. Emitir comprobante SUNAT si solicitó boleta o factura
     if (comprobante !== 'ninguno') {
       try {
-        const { data: cfg } = await db.from('configuracion_sunat')
-          .select('*').eq('hotel_id', SESSION.hotel.id).single();
-        if (cfg) {
-          const esFact = comprobante === 'factura';
-          const serie  = esFact ? cfg.serie_factura   : cfg.serie_boleta;
-          const corr   = esFact ? cfg.correlativo_factura : cfg.correlativo_boleta;
-          const igv    = parseFloat((total * 0.18 / 1.18).toFixed(2));
-
-          // Datos del receptor
-          const rucRec    = esFact ? (document.getElementById('cli-ruc')?.value?.trim()||'')    : '';
-          const razonRec  = esFact ? (document.getElementById('cli-razon')?.value?.trim()||'')  : (document.getElementById('cli-nombre')?.value?.trim()||'');
-          const numDoc    = !esFact ? (document.getElementById('cli-num-doc')?.value?.trim()||'') : '';
-          const tipoDocCli= !esFact ? (document.getElementById('cli-tipo-doc')?.value||'DNI')     : '';
-
-          await db.from('comprobantes_sunat').insert({
-            hotel_id: SESSION.hotel.id,
-            venta_directa_id: (comandaId&&comandaId!=='null')?comandaId:null,
-            tipo_doc: comprobante,
-            serie, correlativo: corr,
-            ruc_emisor: cfg.ruc_emisor || SESSION.hotel.ruc || '',
-            ruc_receptor: esFact ? rucRec : numDoc,
-            razon_social_rec: razonRec || null,
-            total, igv,
-            estado_sunat: 'PENDIENTE_ENVIO',
-          });
-
-          // Incrementar correlativo
-          const campo = esFact ? 'correlativo_factura' : 'correlativo_boleta';
-          await db.from('configuracion_sunat').update({ [campo]: corr+1 }).eq('hotel_id', SESSION.hotel.id);
-
-          toast(`✅ Cobrado + ${comprobante} emitida`,`${serie}-${String(corr).padStart(8,'0')} por ${soles(total)}`,'ok');
-        } else {
-          toast('✅ Cobrado','Configura SUNAT para emitir comprobantes','ok');
-        }
+        const esFact = comprobante === 'factura';
+        const rucRec   = esFact ? (document.getElementById('cli-ruc')?.value?.trim()||'')   : '';
+        const razonRec = esFact ? (document.getElementById('cli-razon')?.value?.trim()||'') : (document.getElementById('cli-nombre')?.value?.trim()||'');
+        const numDoc   = !esFact ? (document.getElementById('cli-num-doc')?.value?.trim()||'') : '';
+        const resp = await emitirComprobanteServidor({
+          tipo: comprobante, ventaId: (comandaId&&comandaId!=='null')?comandaId:null, total,
+          rucRec: esFact ? rucRec : numDoc, razon: razonRec || (esFact ? null : 'Cliente varios'),
+          concepto: `Restaurante Mesa ${numMesa}`,
+        });
+        toast(`✅ Cobrado + ${comprobante} emitida`,`${resp.numero_completo} por ${soles(total)}`,'ok');
       } catch(e) {
         toast('✅ Cobrado (sin comprobante)',`Error SUNAT: ${e.message}`,'warn');
       }
@@ -10617,16 +11535,16 @@ async function confirmarCargoHabitacion(comandaId, numMesa) {
   const total = _restPedidoActual.reduce((s,i)=>s+i.subtotal,0);
   try {
     for (const it of _restPedidoActual) {
-      await db.from('consumos_estadia').insert({
+      chk(await db.from('consumos_estadia').insert({
         hotel_id: SESSION.hotel.id, estadia_id: estadiaId,
         producto_id: null, descripcion:`[Rest.] ${it.descripcion}`,
         cantidad: it.cantidad, precio_unitario: it.precio,
         turno_caja_id: SESSION.turnoActivo?.id||null, usuario_id: SESSION.user.id,
-      });
+      }));
     }
     if (comandaId&&comandaId!=='null') {
       const { data:cv } = await db.from('ventas_directas').select('notas').eq('id',comandaId).single();
-      await db.from('ventas_directas').update({ metodo_pago:'mixto', notas: notasCobrada(cv?.notas) }).eq('id',comandaId);
+      chk(await db.from('ventas_directas').update({ metodo_pago:'mixto', notas: notasCobrada(cv?.notas) }).eq('id',comandaId));
     }
     cerrarModal(); toast('✅ Cargado a habitación',`${soles(total)} agregado`,'ok');
     moduloRestaurante();
@@ -10637,7 +11555,7 @@ async function cancelarComanda(comandaId, numMesa) {
   if (!confirm(`¿Cancelar comanda Mesa ${numMesa}?`)) return;
   try {
     const { data:cv } = await db.from('ventas_directas').select('notas').eq('id',comandaId).single();
-    await db.from('ventas_directas').update({ notas:(cv?.notas||'').replace('ESTADO:preparando','ESTADO:cancelada').replace('ESTADO:abierta','ESTADO:cancelada') }).eq('id',comandaId);
+    chk(await db.from('ventas_directas').update({ notas:(cv?.notas||'').replace(/ESTADO:(abierta|preparando|listo)/,'ESTADO:cancelada') }).eq('id',comandaId));
     toast('Comanda cancelada','','ok'); moduloRestaurante();
   } catch(err) { toast('Error',err.message,'error'); }
 }
@@ -10659,7 +11577,11 @@ async function cargarYRenderCocina() {
     .select('*, items_venta_directa(*)')
     .eq('hotel_id', SESSION.hotel.id)
     .like('notas','MESA:%')
-    .order('created_at',{ascending:true}).limit(100);
+    // Solo las comandas vivas (antes traía las 100 MÁS ANTIGUAS del hotel y luego filtraba:
+    // pasado ese número de pedidos en el historial, los nuevos no aparecían en cocina)
+    .or('notas.like.*ESTADO:abierta*,notas.like.*ESTADO:preparando*,notas.like.*ESTADO:listo*')
+    .order('created_at',{ascending:true}).limit(200);
+  setTimeout(enlazarTarjetasCocina, 0); // tras pintar: tarjetas › llevan a su columna
 
   const activas    = (comandas||[]).filter(c=>{ const n=c.notas||''; return n.includes('ESTADO:preparando')||n.includes('ESTADO:abierta')||n.includes('ESTADO:listo'); });
   const pendientes = activas.filter(c=>(c.notas||'').includes('ESTADO:abierta'));
@@ -10985,7 +11907,7 @@ async function cargarYRenderCocina() {
         <div style="font-weight:700;font-size:1.05rem;color:var(--texto);">Flujo más rápido, mejor servicio</div>
         <div style="font-size:0.82rem;color:var(--texto-sub);margin-top:0.15rem;">Mantén el control de tus comandas y ofrece una experiencia increíble a tus huéspedes.</div>
       </div>
-      <button onclick="toast('Próximamente','Reporte de ventas en desarrollo','info')" style="display:flex;align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:11px;padding:0.7rem 1.25rem;font-size:0.85rem;font-weight:600;color:var(--azul);cursor:pointer;white-space:nowrap;">
+      <button onclick="navegarA('reportes')" style="display:${puedeVerModulo('reportes')?'flex':'none'};align-items:center;gap:0.5rem;background:white;border:1.5px solid var(--azul);border-radius:11px;padding:0.7rem 1.25rem;font-size:0.85rem;font-weight:600;color:var(--azul);cursor:pointer;white-space:nowrap;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:16px;height:16px;"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
         Ver reporte de ventas
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6"/></svg>
@@ -11007,7 +11929,7 @@ function tarjetaComandaCocinaMobile(comanda, estado) {
           <span style="font-weight:800;font-size:1rem;">Mesa ${escapeHtml(mesa)}</span>
           <span style="display:flex;align-items:center;gap:0.2rem;font-size:0.7rem;font-weight:700;color:${urgente?'#DC2626':'#CA8A04'};background:${urgente?'#FEF2F2':'#FEFCE8'};padding:0.15rem 0.5rem;border-radius:999px;">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:11px;height:11px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-            ${minutos}min
+            ${fmtMinutos(minutos)}
           </span>
         </div>
         <span style="font-size:0.7rem;color:var(--texto-sub);">${hora}</span>
@@ -11040,7 +11962,7 @@ function tarjetaComandaCocina(comanda, estado) {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.65rem;">
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span style="font-weight:800;font-size:1rem;">Mesa ${escapeHtml(mesa)}</span>
-          <span style="font-size:0.72rem;color:var(--texto-sub);">${minutos} min</span>
+          <span style="font-size:0.72rem;color:var(--texto-sub);">${fmtMinutos(minutos)}</span>
         </div>
         <div style="display:flex;align-items:center;gap:0.65rem;">
           <span style="font-size:0.72rem;color:var(--texto-sub);">${hora}</span>
@@ -11083,7 +12005,7 @@ function tarjetaComandaCocina(comanda, estado) {
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem;">
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <span style="font-size:1.25rem;font-weight:800;">Mesa ${mesa}</span>
-          ${urgente?`<span style="background:#FEF2F2;color:#DC2626;font-size:0.65rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:999px;">⚠️ ${minutos}min</span>`:`<span style="font-size:0.72rem;color:var(--texto-sub);">${minutos}min</span>`}
+          ${urgente?`<span style="background:#FEF2F2;color:#DC2626;font-size:0.65rem;font-weight:700;padding:0.15rem 0.5rem;border-radius:999px;">⚠️ ${fmtMinutos(minutos)}</span>`:`<span style="font-size:0.72rem;color:var(--texto-sub);">${fmtMinutos(minutos)}</span>`}
         </div>
         <span style="font-size:0.7rem;color:var(--texto-sub);">${hora}</span>
       </div>
@@ -11101,12 +12023,34 @@ function tarjetaComandaCocina(comanda, estado) {
     </div>`;
 }
 
+function enlazarTarjetasCocina() {
+  const destinos = [['Nuevas','Nuevas'], ['Preparando','Preparando'], ['Listas para servir','Listo para servir']];
+  document.querySelectorAll('#contenido .card').forEach(c => {
+    const par = destinos.find(([k]) => c.innerText.includes(k));
+    if (!par || c.innerText.includes('Total de comandas')) return;
+    c.style.cursor = 'pointer';
+    c.onclick = () => {
+      const h = [...document.querySelectorAll('#contenido div')]
+        .find(d => d !== c && !c.contains(d) && d.children.length === 0 && d.textContent.trim() === par[1]);
+      h?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    };
+  });
+}
+
 async function moverComandaCocina(comandaId, nuevoEstado) {
   try {
     const { data:cv } = await db.from('ventas_directas').select('notas').eq('id',comandaId).single();
+    // Si el mozo ya la canceló o cobró mientras tanto, no se "mueve" (antes igual decía "En preparación")
+    const previo = nuevoEstado === 'preparando' ? 'ESTADO:abierta' : 'ESTADO:preparando';
+    if ((cv?.notas||'').includes('ESTADO:'+nuevoEstado)) { await cargarYRenderCocina(); return; }   // doble clic
+    if (!(cv?.notas||'').includes(previo) && !(nuevoEstado==='listo' && (cv?.notas||'').includes('ESTADO:abierta'))) {
+      toast('El pedido cambió', 'El mozo lo actualizó, canceló o cobró. Se recargó la lista.', 'warn');
+      await cargarYRenderCocina(); return;
+    }
     const notas=(cv?.notas||'').replace('ESTADO:abierta','ESTADO:'+nuevoEstado).replace('ESTADO:preparando','ESTADO:'+nuevoEstado);
-    await db.from('ventas_directas').update({ notas }).eq('id',comandaId);
+    chk(await db.from('ventas_directas').update({ notas }).eq('id',comandaId));
     if (nuevoEstado==='listo') toast('✅ Plato listo','El mozo puede servir la mesa','ok');
+    if (nuevoEstado==='preparando') toast('En preparación','El pedido pasó a "Preparando"','info', 2500);
     await cargarYRenderCocina();
   } catch(err) { toast('Error',err.message,'error'); }
 }

@@ -1,5 +1,5 @@
 // HospedaYa Service Worker — GitHub Pages compatible
-const CACHE_NAME = 'hospedaya-v2';
+const CACHE_NAME = 'hospedaya-v9';
 
 const ARCHIVOS = [
   './',
