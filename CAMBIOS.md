@@ -5,6 +5,15 @@ Los cambios de base de datos están en `sql/` (todos aplicados en Supabase, proy
 
 ---
 
+## 30/09/2026 — Celular: la app ya no se mete bajo la hora y la batería
+- **Problema:** la app instalada en iPhone (y en algunos Android) usa toda la pantalla (`viewport-fit=cover` y barra `black-translucent`). La barra de búsqueda, la campanita y el "LN" quedaban debajo de la hora, el wifi y la batería.
+- **Arreglo** (CSS al final de `index.html`, "ZONA SEGURA DEL CELULAR"): se deja libre el espacio del teléfono con `env(safe-area-inset-*)`.
+  - Arriba: barra superior, avisos (toasts), panel de notificaciones, ventanas emergentes y la barra de "Imprimir / Cerrar" de la vista de impresión (`app.js`).
+  - Abajo: barra de navegación inferior, espacio final del contenido y botón flotante "Nueva reserva", para que no choquen con la rayita de inicio del iPhone.
+- En PC y en teléfonos sin esa zona, el espacio vale 0: nada cambia.
+- **Probado:** simulando un iPhone (47 px arriba y 34 px abajo), en la pantalla, las notificaciones y una ventana alta. En PC se comprobó que la barra sigue igual (68 px).
+- Caché `hospedaya-v14`.
+
 ## 30/09/2026 — Nuevo método de pago: Tarjeta (POS)
 Respaldo previo: `RESPALDO-hospedaya-2026-09-30\antes-tarjeta\`.
 - **Base de datos** (`sql/10-pago-con-tarjeta.sql`, aplicado): se agregó `tarjeta` a los métodos permitidos en `estadias_reservas`, `ventas_directas`, `movimientos_caja` y `suscripciones_pagos`.

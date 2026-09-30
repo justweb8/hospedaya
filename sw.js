@@ -1,6 +1,6 @@
 // HospedaYa Service Worker — GitHub Pages compatible
 // Subir la versión cada vez que cambien archivos de la app.
-const CACHE_NAME = 'hospedaya-v13';
+const CACHE_NAME = 'hospedaya-v14';
 
 const ARCHIVOS = [
   './',

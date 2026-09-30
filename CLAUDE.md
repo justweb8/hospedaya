@@ -41,6 +41,7 @@ Sistema para administrar hoteles (PMS) que se vende por suscripción (SaaS): hab
 ## En qué nos quedamos (30/09/2026)
 - **Hecho y probado (28/09/2026):** revisión completa de los 6 roles, en PC, tablet y celular: dueño, recepción, limpieza, restaurante, cocina y SuperAdmin. Se corrigieron decenas de errores y varios huecos de seguridad en la base de datos. El detalle está en `CAMBIOS.md`.
 - **Hecho y probado (30/09/2026):** optimización de velocidad. El arranque tarda ~1 s; la primera visita a cada sección, 0.3–0.9 s; volver a una sección ya vista es instantáneo. Se probó en PC y celular, sin errores (detalle en `CAMBIOS.md`).
+- **Hecho y probado (30/09/2026):** en el celular (iPhone), la barra de arriba ya no se mezcla con la hora y la batería, y la barra de abajo respeta la rayita de inicio.
 - **Hecho y probado (30/09/2026):** nuevo método de pago **Tarjeta (POS)** en todos los cobros (hotel, tiendita, restaurante, caja, suscripciones) y en caja y reportes.
 - **Hecho y probado (30/09/2026):** listas largas. Huéspedes se carga de a 50 con "Ver más" y búsqueda en todos; Comprobantes se ve por mes.
 - **Aún no publicado:** los cambios de la app están guardados en esta carpeta, pero **el dueño todavía no los subió a GitHub**. Hay que subir el contenido de `hospedaya-main`; la carpeta `.claude` no hace falta.
@@ -82,7 +83,8 @@ Sistema para administrar hoteles (PMS) que se vende por suscripción (SaaS): hab
 ## Datos útiles
 - **Probar en la PC:** servidor local en el puerto **5500** (`http://localhost:5500`). En esta PC no hay Python ni Node, así que se usa `..\.claude\servidor-local.ps1` (PowerShell), configurado en `..\.claude\launch.json` con el nombre `hospedaya`.
 - **Supabase:** proyecto `gcuicpitzbcwqxlloodm` ("hotel-system"). Los cambios de base de datos se hacen en el SQL Editor del panel web, con la sesión del dueño.
-- **Versión del caché:** `hospedaya-v13` (en `sw.js`). Súbela cada vez que cambies archivos de la app. El caché abre con la copia guardada y la actualiza en segundo plano. Para probar en local, recarga 2 veces después de un cambio.
+- **Zona segura del celular:** la app se dibuja a pantalla completa. Todo elemento nuevo fijo arriba o abajo (barras, botones flotantes, paneles) debe sumar `env(safe-area-inset-top/bottom, 0px)`. Ver el bloque "ZONA SEGURA" al final del `<style>` de `index.html`.
+- **Versión del caché:** `hospedaya-v14` (en `sw.js`). Súbela cada vez que cambies archivos de la app. El caché abre con la copia guardada y la actualiza en segundo plano. Para probar en local, recarga 2 veces después de un cambio.
 - **Hotel demo:** "luna nueva" (plan PRO). También existen "hotel cuchurumi" (PRO) y "hotel lupita" (BÁSICO).
 - **Respaldo previo a la revisión:** `Downloads\HOSPEDAYA-20260924T025822Z-1-001\RESPALDO-hospedaya-2026-09-28\`.
 - **SQL (todos APLICADOS el 28/09/2026):**

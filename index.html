@@ -1193,6 +1193,43 @@
     @media (prefers-reduced-motion: reduce) {
       * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
     }
+
+    /* ── ZONA SEGURA DEL CELULAR (hora/batería arriba, rayita de inicio abajo) ──
+       La app se instala a pantalla completa (viewport-fit=cover + barra translúcida),
+       así que se deja libre el espacio que el teléfono usa arriba y abajo.
+       En PC y en navegadores sin esa zona, env(...) vale 0 y nada cambia. */
+    #topbar {
+      padding-top: env(safe-area-inset-top, 0px) !important;
+      height: calc(68px + env(safe-area-inset-top, 0px)) !important;
+      min-height: calc(68px + env(safe-area-inset-top, 0px)) !important;
+    }
+    #toast-container { top: calc(1rem + env(safe-area-inset-top, 0px)); }
+    #panel-notificaciones { top: calc(60px + env(safe-area-inset-top, 0px)) !important; }
+    /* Ventanas emergentes: no se meten bajo la hora ni bajo la rayita de inicio */
+    #modal-generico {
+      padding-top: calc(1.25rem + env(safe-area-inset-top, 0px)) !important;
+      padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px)) !important;
+    }
+    #modal-generico > div {
+      max-height: calc(100vh - 2.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+      max-height: calc(100dvh - 2.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+    }
+    @media (min-width: 769px) {
+      #sidebar-wrap { padding-top: env(safe-area-inset-top, 0px); }
+    }
+    @media (max-width: 768px) {
+      #sidebar-wrap {
+        height: calc(64px + env(safe-area-inset-bottom, 0px)) !important;
+        padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+      }
+      #contenido { padding-bottom: calc(64px + 0.85rem + env(safe-area-inset-bottom, 0px)) !important; }
+    }
+    @media (max-width: 480px) {
+      #topbar {
+        height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+        min-height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+      }
+    }
   </style>
 </head>
 <body>

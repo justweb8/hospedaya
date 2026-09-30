@@ -57,7 +57,7 @@ function abrirVentanaImpresion(ancho = 800, alto = 900) {
         ov.id = 'visor-impresion';
         ov.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(15,23,42,0.75);display:flex;flex-direction:column;';
         ov.innerHTML = `
-          <div style="display:flex;justify-content:flex-end;gap:0.5rem;padding:0.6rem 0.75rem;background:#0F172A;">
+          <div style="display:flex;justify-content:flex-end;gap:0.5rem;padding:0.6rem 0.75rem;padding-top:calc(0.6rem + env(safe-area-inset-top, 0px));background:#0F172A;">
             <button id="visor-imp-btn" style="padding:0.55rem 1rem;background:#2563EB;color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer;">Imprimir / Guardar PDF</button>
             <button id="visor-cerrar-btn" style="padding:0.55rem 1rem;background:white;color:#0F172A;border:none;border-radius:8px;font-weight:600;cursor:pointer;">Cerrar</button>
           </div>
@@ -5237,7 +5237,7 @@ function renderCalendario() {
       </div>
 
       <!-- FAB Nueva reserva -->
-      <button onclick="abrirNuevaReserva()" style="position:fixed;bottom:80px;right:1rem;display:flex;align-items:center;gap:0.5rem;padding:0.85rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:999px;font-size:0.9rem;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(37,99,235,0.45);z-index:100;">
+      <button onclick="abrirNuevaReserva()" style="position:fixed;bottom:calc(80px + env(safe-area-inset-bottom, 0px));right:1rem;display:flex;align-items:center;gap:0.5rem;padding:0.85rem 1.25rem;background:linear-gradient(135deg,var(--azul),#2563EB);color:white;border:none;border-radius:999px;font-size:0.9rem;font-weight:700;cursor:pointer;box-shadow:0 6px 20px rgba(37,99,235,0.45);z-index:100;">
         <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" style="width:18px;height:18px;"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Nueva reserva
       </button>
