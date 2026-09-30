@@ -1,0 +1,7 @@
+# GitHub Pages: estos archivos quedan en el repositorio pero NO se publican en la web
+exclude:
+  - CLAUDE.md
+  - CAMBIOS.md
+  - README.md
+  - sql/
+  - .claude/

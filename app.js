@@ -347,6 +347,9 @@ function textoFechaBusqueda(iso) {
 }
 
 // "¿Necesitas ayuda? Contáctanos" (barra lateral): WhatsApp al soporte de HospedaYa
+// Ícono de "Tarjeta (POS)": maquinita de cobro con pantalla y teclas
+const ICO_TARJETA = '<rect x="5" y="2" width="14" height="20" rx="2"/><rect x="8" y="5" width="8" height="5" rx="1"/><line x1="8.5" y1="14" x2="8.51" y2="14"/><line x1="12" y1="14" x2="12.01" y2="14"/><line x1="15.5" y1="14" x2="15.51" y2="14"/><line x1="8.5" y1="17.5" x2="8.51" y2="17.5"/><line x1="12" y1="17.5" x2="12.01" y2="17.5"/><line x1="15.5" y1="17.5" x2="15.51" y2="17.5"/>';
+
 function abrirAyudaSoporte() {
   const msg = `Hola, necesito ayuda con HospedaYa. Hotel: ${(SESSION.hotel?.nombre_comercial || SESSION.hotel?.razon_social || '-').trim()} · Usuario: ${SESSION.perfil?.nombre_completo || '-'} (${rolLabelPersonal(SESSION.perfil?.rol) || '-'})`;
   window.open(`https://wa.me/${WA_SUPERADMIN}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
@@ -371,6 +374,9 @@ function fmtMinutos(m) {
 }
 
 function skeleton() {
+  // Si navegarA ya pintó la última vista guardada de esta sección, no la reemplaza
+  // por "Cargando…": los datos nuevos aparecerán solos en cuanto lleguen.
+  if (window._vistaDesdeCache) return;
   contenido().innerHTML = `
     <div style="display:flex;align-items:center;justify-content:center;height:240px;color:var(--texto-sub);gap:0.75rem;">
       <div class="spinner" style="width:28px;height:28px;"></div>
@@ -984,7 +990,7 @@ async function abrirGestionHotel(hotelId) {
         <div><label style="${ST.label}">Método</label>
           <select style="${ST.input}" id="renov-metodo">
             <option value="yape">Yape</option><option value="plin">Plin</option>
-            <option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option>
+            <option value="tarjeta">Tarjeta</option><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option>
           </select>
         </div>
       </div>
@@ -1189,7 +1195,7 @@ function abrirFormAltaHotel() {
         <div style="${ST.grupo}"><label style="${ST.label}">Método</label>
           <select style="${ST.input}" name="metodo_pago">
             <option value="yape">Yape</option><option value="plin">Plin</option>
-            <option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option>
+            <option value="tarjeta">Tarjeta</option><option value="transferencia">Transferencia</option><option value="efectivo">Efectivo</option>
           </select>
         </div>
         <div style="${ST.grupo}"><label style="${ST.label}">Código operación</label><input style="${ST.input}" name="codigo_operacion" placeholder="Opcional"></div>
@@ -1419,7 +1425,7 @@ async function renderCajaAbierta() {
   window._cajaMov = movs || [];
 
   // Totales por método
-  const res = { efectivo:0, yape:0, plin:0, transferencia:0, egresos:0 };
+  const res = { efectivo:0, yape:0, plin:0, tarjeta:0, transferencia:0, egresos:0 };
   let totalIngresos = 0;
   (movs||[]).forEach(m => {
     if (m.tipo === 'ingreso') {
@@ -1451,6 +1457,8 @@ async function renderCajaAbierta() {
       icon:'<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>' },
     { key:'plin',         label:'Plin',               color:'#0891B2', bg:'#F0F9FF',
       icon:'<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>' },
+    { key:'tarjeta',      label:'Tarjeta (POS)',      color:'#DB2777', bg:'#FDF2F8',
+      icon:ICO_TARJETA },
     { key:'transferencia',label:'Transferencias',     color:'#EA580C', bg:'#FFF7ED',
       icon:'<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>' },
     { key:'egresos',      label:'Egresos',            color:'#DC2626', bg:'#FEF2F2',
@@ -1492,19 +1500,21 @@ async function renderCajaAbierta() {
         <div style="font-size:0.78rem;color:#15803D;">Fondo inicial: <strong>${soles(turno.fondo_inicial)}</strong></div>
       </div>
 
-      <!-- Tarjetas de métodos — 2 columnas arriba + 3 abajo -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:0.6rem;">
+      <!-- Tarjetas de métodos — 3 columnas arriba + 3 abajo -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-bottom:0.6rem;">
         ${cajaTarjetaMobile('Efectivo (ingresos)', efectivoVisible, '#16A34A', '#F0FDF4',
           '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>',
           (movs||[]).filter(x=>x.metodo_pago==='efectivo'&&x.tipo==='ingreso').length)}
         ${cajaTarjetaMobile('Yape', res.yape||0, '#7C3AED', '#F5F3FF',
           '<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>',
           (movs||[]).filter(x=>x.metodo_pago==='yape'&&x.tipo==='ingreso').length)}
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
         ${cajaTarjetaMobile('Plin', res.plin||0, '#0891B2', '#F0F9FF',
           '<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>',
           (movs||[]).filter(x=>x.metodo_pago==='plin'&&x.tipo==='ingreso').length)}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.6rem;margin-bottom:1rem;">
+        ${cajaTarjetaMobile('Tarjeta (POS)', res.tarjeta||0, '#DB2777', '#FDF2F8', ICO_TARJETA,
+          (movs||[]).filter(x=>x.metodo_pago==='tarjeta'&&x.tipo==='ingreso').length)}
         ${cajaTarjetaMobile('Transferencias', res.transferencia||0, '#EA580C', '#FFF7ED',
           '<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
           (movs||[]).filter(x=>x.metodo_pago==='transferencia'&&x.tipo==='ingreso').length)}
@@ -1608,8 +1618,8 @@ async function renderCajaAbierta() {
         <span style="font-size:0.83rem;color:var(--texto-sub);">Fondo inicial: <strong>${soles(turno.fondo_inicial)}</strong></span>
       </div>
 
-      <!-- 5 tarjetas por método (ancho completo) -->
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
+      <!-- 6 tarjetas por método (ancho completo) -->
+      <div class="caja-metodos">
         ${metodos.map(m => cajaTarjeta(m.label, m.key==='efectivo' ? efectivoVisible : (res[m.key]||0), m.color, m.bg, m.icon,
           (movs||[]).filter(x => m.key==='egresos' ? x.tipo==='egreso' : x.metodo_pago===m.key && x.tipo==='ingreso').length
         )).join('')}
@@ -1641,6 +1651,7 @@ async function renderCajaAbierta() {
                   <option value="efectivo">Efectivo</option>
                   <option value="yape">Yape</option>
                   <option value="plin">Plin</option>
+                  <option value="tarjeta">Tarjeta (POS)</option>
                   <option value="transferencia">Transferencia</option>
                 </select>
               </div>
@@ -1812,6 +1823,7 @@ function renderFilasCaja(movs) {
     efectivo:      { bg:'#F0FDF4', color:'#16A34A', ico:'<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/>', label:'Efectivo' },
     yape:          { bg:'#F5F3FF', color:'#7C3AED', ico:'<rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/>', label:'Yape' },
     plin:          { bg:'#F0F9FF', color:'#0891B2', ico:'<rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12.01" y2="18"/>', label:'Plin' },
+    tarjeta:       { bg:'#FDF2F8', color:'#DB2777', ico:ICO_TARJETA, label:'Tarjeta (POS)' },
     transferencia: { bg:'#FFF7ED', color:'#EA580C', ico:'<path d="M17 1l4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><path d="M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>', label:'Transferencia' },
   };
 
@@ -1882,7 +1894,7 @@ function filtrarMovimientos() {
     if (q && !`${m.concepto||''} ${m.metodo_pago||''} ${m.habitacion_numero||''}`.toLowerCase().includes(q)) return false;
     if (tipo === 'ingreso' && m.tipo !== 'ingreso') return false;
     if (tipo === 'egreso'  && m.tipo !== 'egreso')  return false;
-    if (['efectivo','yape','plin','transferencia'].includes(tipo) && m.metodo_pago !== tipo) return false;
+    if (['efectivo','yape','plin','tarjeta','transferencia'].includes(tipo) && m.metodo_pago !== tipo) return false;
     return true;
   });
 
@@ -1899,7 +1911,7 @@ function descargarReporteCaja() {
   const hotel = SESSION.hotel;
   const cajero = SESSION.perfil?.nombre_completo || '—';
 
-  const res = { efectivo:0, yape:0, plin:0, transferencia:0, egresos:0, egresosEfectivo:0 };
+  const res = { efectivo:0, yape:0, plin:0, tarjeta:0, transferencia:0, egresos:0, egresosEfectivo:0 };
   let totalIngresos = 0;
   movs.forEach(m => {
     if (m.tipo === 'ingreso') {
@@ -2019,6 +2031,7 @@ function descargarReporteCaja() {
       <div class="met-card"><span class="met-lbl">💵 Efectivo</span><span class="met-val">${verSaldo ? 'S/ ' + (res.efectivo||0).toFixed(2) : '••••'}</span></div>
       <div class="met-card"><span class="met-lbl">📱 Yape</span><span class="met-val">S/ ${(res.yape||0).toFixed(2)}</span></div>
       <div class="met-card"><span class="met-lbl">📲 Plin</span><span class="met-val">S/ ${(res.plin||0).toFixed(2)}</span></div>
+      <div class="met-card"><span class="met-lbl">💳 Tarjeta (POS)</span><span class="met-val">S/ ${(res.tarjeta||0).toFixed(2)}</span></div>
       <div class="met-card"><span class="met-lbl">🏦 Transferencia</span><span class="met-val">S/ ${(res.transferencia||0).toFixed(2)}</span></div>
     </div>
 
@@ -2073,6 +2086,7 @@ function abrirFormMovimiento(tipo) {
             ${!esEgreso ? `
               <option value="yape">Yape</option>
               <option value="plin">Plin</option>
+              <option value="tarjeta">Tarjeta (POS)</option>
               <option value="transferencia">Transferencia</option>` : ''}
           </select>
         </div>
@@ -2244,7 +2258,7 @@ async function imprimirArqueoCompleto(turnoId) {
     const cajero = turno?.perfiles_usuarios?.nombre_completo || SESSION.perfil?.nombre_completo || '—';
 
     // Calcular totales por método
-    const metodos = ['efectivo','yape','plin','transferencia','otro'];
+    const metodos = ['efectivo','yape','plin','tarjeta','transferencia','otro'];
     const totMetodo = {};
     metodos.forEach(m => totMetodo[m] = { ing:0, egr:0 });
 
@@ -2699,12 +2713,23 @@ async function cargarNotificaciones() {
     const notis    = [];
 
     // 1. Habitaciones que vencen hoy (salida prevista hoy)
-    const { data: vencenHoy } = await db.from('estadias_reservas')
+    // Rendimiento: las 4 consultas de notificaciones salen a la vez (antes una tras otra)
+    const pVencen = db.from('estadias_reservas')
       .select('*, habitaciones(numero), huespedes(nombres,apellidos)')
       .eq('hotel_id', SESSION.hotel.id)
       .eq('estado','activa')
       .gte('fecha_salida_prev', iniHoyISO)
-      .lte('fecha_salida_prev', finHoyISO);
+      .lte('fecha_salida_prev', finHoyISO).then(x => x);   // .then() la envía ya
+    const pEntradas = db.from('estadias_reservas')
+      .select('*, habitaciones(numero), huespedes(nombres,apellidos)')
+      .eq('hotel_id', SESSION.hotel.id)
+      .eq('estado','reservada')
+      .gte('fecha_entrada', iniHoyISO)
+      .lte('fecha_entrada', finHoyISO).then(x => x);
+    const pLimpieza = db.from('habitaciones').select('*').eq('hotel_id', SESSION.hotel.id).eq('estado','limpieza').then(x => x);
+    const pMant     = db.from('habitaciones').select('numero').eq('hotel_id', SESSION.hotel.id).eq('estado','mantenimiento').then(x => x);
+
+    const { data: vencenHoy } = await pVencen;
 
     (vencenHoy||[]).forEach(e => {
       const hora = new Date(e.fecha_salida_prev).toLocaleTimeString('es-PE',{hour:'2-digit',minute:'2-digit'});
@@ -2718,12 +2743,7 @@ async function cargarNotificaciones() {
     });
 
     // 2. Reservas con entrada hoy
-    const { data: entradasHoy } = await db.from('estadias_reservas')
-      .select('*, habitaciones(numero), huespedes(nombres,apellidos)')
-      .eq('hotel_id', SESSION.hotel.id)
-      .eq('estado','reservada')
-      .gte('fecha_entrada', iniHoyISO)
-      .lte('fecha_entrada', finHoyISO);
+    const { data: entradasHoy } = await pEntradas;
 
     (entradasHoy||[]).forEach(e => {
       notis.push({
@@ -2736,8 +2756,7 @@ async function cargarNotificaciones() {
     });
 
     // 3. Habitaciones en limpieza por mucho tiempo (> 2 horas)
-    const { data: enLimpieza } = await db.from('habitaciones')
-      .select('*').eq('hotel_id', SESSION.hotel.id).eq('estado','limpieza');
+    const { data: enLimpieza } = await pLimpieza;
 
     (enLimpieza||[]).forEach(h => {
       notis.push({
@@ -2782,8 +2801,7 @@ async function cargarNotificaciones() {
     }
 
     // 6. Habitaciones en mantenimiento
-    const { data: enMant } = await db.from('habitaciones')
-      .select('numero').eq('hotel_id', SESSION.hotel.id).eq('estado','mantenimiento');
+    const { data: enMant } = await pMant;
     if (enMant?.length) {
       notis.push({
         id: 'mantenimiento', tipo: 'mantenimiento', urgencia: 'baja',
@@ -2900,34 +2918,33 @@ async function moduloDashboadHotelPlaceholderRemoved() {}
 async function moduloDashboardHotel() {
   skeleton();
   try {
-    const habs = await getHabitaciones();
-    const conteo = { libre: 0, ocupada: 0, limpieza: 0, reservada: 0, mantenimiento: 0 };
-    habs.forEach(h => { conteo[h.estado] = (conteo[h.estado] || 0) + 1; });
-
-    const turno = await getTurnoAbierto();
-    const totalHabs = habs.length;
-
     const hoyIni = new Date(); hoyIni.setHours(0,0,0,0);
     const hoyFin = new Date(); hoyFin.setHours(23,59,59,999);
 
-    const { data: llegadas } = await db.from('estadias_reservas')
-      .select(`fecha_entrada, estado, habitaciones(numero), huespedes(nombres, apellidos)`)
-      .eq('hotel_id', SESSION.hotel.id)
-      .gte('fecha_entrada', hoyIni.toISOString()).lte('fecha_entrada', hoyFin.toISOString())
-      .order('fecha_entrada').limit(6);
-
-    const { data: reservasProx } = await db.from('estadias_reservas')
-      .select(`fecha_entrada, habitaciones(numero), huespedes(nombres, apellidos)`)
-      .eq('hotel_id', SESSION.hotel.id)
-      .eq('estado', 'reservada')
-      .gte('fecha_entrada', new Date().toISOString())
-      .order('fecha_entrada').limit(6);
-
-    const { data: movsHoy } = await db.from('movimientos_caja')
-      .select('tipo, monto, metodo_pago, created_at')
-      .eq('hotel_id', SESSION.hotel.id)
-      .gte('created_at', hoyIni.toISOString()).lte('created_at', hoyFin.toISOString())
-      .limit(2000);
+    // Rendimiento: las 5 consultas van a la vez (antes una tras otra: ~5 esperas en celular)
+    const [habs, turno, { data: llegadas }, { data: reservasProx }, { data: movsHoy }] = await Promise.all([
+      getHabitaciones(),
+      getTurnoAbierto(),
+      db.from('estadias_reservas')
+        .select(`fecha_entrada, estado, habitaciones(numero), huespedes(nombres, apellidos)`)
+        .eq('hotel_id', SESSION.hotel.id)
+        .gte('fecha_entrada', hoyIni.toISOString()).lte('fecha_entrada', hoyFin.toISOString())
+        .order('fecha_entrada').limit(6),
+      db.from('estadias_reservas')
+        .select(`fecha_entrada, habitaciones(numero), huespedes(nombres, apellidos)`)
+        .eq('hotel_id', SESSION.hotel.id)
+        .eq('estado', 'reservada')
+        .gte('fecha_entrada', new Date().toISOString())
+        .order('fecha_entrada').limit(6),
+      db.from('movimientos_caja')
+        .select('tipo, monto, metodo_pago, created_at')
+        .eq('hotel_id', SESSION.hotel.id)
+        .gte('created_at', hoyIni.toISOString()).lte('created_at', hoyFin.toISOString())
+        .limit(2000),
+    ]);
+    const conteo = { libre: 0, ocupada: 0, limpieza: 0, reservada: 0, mantenimiento: 0 };
+    habs.forEach(h => { conteo[h.estado] = (conteo[h.estado] || 0) + 1; });
+    const totalHabs = habs.length;
     const ingresosHoy = (movsHoy||[]).filter(m=>m.tipo==='ingreso').reduce((s,m)=>s+Number(m.monto),0);
 
     const porHora = {};
@@ -4003,6 +4020,7 @@ function abrirCheckIn(h) {
             <option value="efectivo">💵 Efectivo</option>
             <option value="yape">📱 Yape</option>
             <option value="plin">📲 Plin</option>
+            <option value="tarjeta">💳 Tarjeta (POS)</option>
             <option value="transferencia">🏦 Transferencia</option>
           </select>
         </div>
@@ -4546,11 +4564,11 @@ async function abrirCheckOut(estadiaId, habId, numero) {
     ${saldo>0.01?`
     <!-- Método de pago saldo -->
     <div style="${ST.grupo}"><label style="${ST.label}">Método de pago del saldo</label>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.4rem;">
-        ${['efectivo','yape','plin','transferencia'].map((m,i)=>`
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:0.4rem;">
+        ${['efectivo','yape','plin','tarjeta','transferencia'].map((m,i)=>`
           <button type="button" onclick="selMetodoCO('${m}',this)" class="btn-metodo-co"
             style="padding:0.55rem 0.25rem;border-radius:8px;border:1.5px solid ${i===0?'var(--azul)':'var(--gris-borde)'};background:${i===0?'#EFF6FF':'white'};font-size:0.75rem;font-weight:600;cursor:pointer;color:${i===0?'var(--azul)':'var(--texto-sub)'};">
-            ${m==='efectivo'?'💵':m==='yape'?'📱':m==='plin'?'📲':'🏦'}<br>${m.charAt(0).toUpperCase()+m.slice(1)}
+            ${m==='efectivo'?'💵':m==='yape'?'📱':m==='plin'?'📲':m==='tarjeta'?'💳':'🏦'}<br>${m.charAt(0).toUpperCase()+m.slice(1)}
           </button>`).join('')}
       </div>
       <input type="hidden" id="checkout-metodo" value="efectivo">
@@ -6457,7 +6475,7 @@ async function abrirNuevaReserva() {
       <div style="${ST.fila}">
         <div style="${ST.grupo}"><label style="${ST.label}">Adelanto</label><input style="${ST.input}" id="res-adelanto" type="number" step="0.01" value="0"></div>
         <div style="${ST.grupo}"><label style="${ST.label}">Método</label>
-          <select style="${ST.input}" id="res-metodo"><option value="efectivo">Efectivo</option><option value="yape">Yape</option><option value="plin">Plin</option><option value="transferencia">Transferencia</option></select>
+          <select style="${ST.input}" id="res-metodo"><option value="efectivo">Efectivo</option><option value="yape">Yape</option><option value="plin">Plin</option><option value="tarjeta">Tarjeta (POS)</option><option value="transferencia">Transferencia</option></select>
         </div>
       </div>
       <button type="submit" style="${ST.btnPri}">Crear reserva</button>
@@ -6639,28 +6657,26 @@ async function ejecutarLlegadaReserva(estadiaId, habId) {
 async function moduloHuespedes() {
   skeleton();
   try {
-    const { data: huespedes } = await db.from('huespedes')
-      .select('*').eq('hotel_id', SESSION.hotel.id).order('created_at', { ascending:false }).limit(300);
-
     const hoyIni = new Date(); hoyIni.setHours(0,0,0,0);
     const hoyFin = new Date(); hoyFin.setHours(23,59,59,999);
 
-    const [{ data: activos }, { data: checkinHoy }, { data: checkoutHoy }] = await Promise.all([
+    // La lista se pide al servidor de a 50 (cargarListaHuespedes). Aquí solo el TOTAL y los indicadores.
+    // Antes se traían los últimos 300 y el buscador solo buscaba dentro de esos 300.
+    const [{ count: totalRegistrados }, { data: activos }, { data: checkinHoy }, { data: checkoutHoy }] = await Promise.all([
+      db.from('huespedes').select('id', { count:'exact', head:true }).eq('hotel_id', SESSION.hotel.id),
       db.from('estadias_reservas').select('id, huesped_id').eq('hotel_id', SESSION.hotel.id).eq('estado','activa'),
       db.from('estadias_reservas').select('id').eq('hotel_id', SESSION.hotel.id).gte('fecha_entrada', hoyIni.toISOString()).lte('fecha_entrada', hoyFin.toISOString()).eq('estado','activa'),
       db.from('estadias_reservas').select('id').eq('hotel_id', SESSION.hotel.id).gte('fecha_salida_real', hoyIni.toISOString()).lte('fecha_salida_real', hoyFin.toISOString()).eq('estado','check_out'),
     ]);
-    // Marcar quién está alojado ahora (filtro "Alojados ahora" / "Solo registrados")
-    const alojados = new Set((activos||[]).map(e => e.huesped_id));
-    (huespedes||[]).forEach(h => { h._alojado = alojados.has(h.id); });
+    // Quién está alojado ahora (filtro "Alojados ahora" / "Solo registrados" y la etiqueta de cada fila)
+    window._huesAlojadosIds = [...new Set((activos||[]).map(e => e.huesped_id).filter(Boolean))];
 
-    const totalHuespedes = (huespedes||[]).length;
+    const totalHuespedes = totalRegistrados || 0;
     const totalActivos   = (activos||[]).length;
     const totalCIHoy     = (checkinHoy||[]).length;
     const totalCOHoy     = (checkoutHoy||[]).length;
 
-    window._huespedesCache = huespedes || [];
-    window._huespedesAll   = huespedes || [];
+    window._huespedesCache = [];
 
     const esMobile = window.innerWidth <= 768;
 
@@ -6710,29 +6726,17 @@ async function moduloHuespedes() {
         <!-- Filtros pills -->
         <div style="display:flex;gap:0.5rem;overflow-x:auto;scrollbar-width:none;margin-bottom:1rem;padding-bottom:0.1rem;">
           <select id="hues-filtro-fecha" onchange="filtrarHuespedes()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;font-family:inherit;cursor:pointer;"><option value="">Fecha: todas</option><option value="hoy">Hoy</option><option value="semana">Esta semana</option><option value="mes">Este mes</option><option value="mes_pasado">Mes pasado</option></select>
-          <select id="hues-filtro-estado" onchange="filtrarHuespedes()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;font-family:inherit;cursor:pointer;"><option value="">Estado: todos</option><option value="alojado">Alojados ahora</option><option value="registrado">Solo registrados</option><option value="vip">VIP</option></select>
+          <select id="hues-filtro-estado" onchange="filtrarHuespedes()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;font-family:inherit;cursor:pointer;"><option value="">Estado: todos</option><option value="alojado">Alojados ahora</option><option value="registrado">Solo registrados</option></select>
           <select id="hues-filtro-orden" onchange="filtrarHuespedes()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.78rem;color:var(--texto-sub);flex-shrink:0;font-family:inherit;cursor:pointer;"><option value="reciente">Más recientes</option><option value="antiguo">Más antiguos</option><option value="nombre">Nombre A→Z</option></select>
         </div>
 
-        <!-- Tarjetas de huéspedes -->
-        <div id="hues-cards-mobile">
-          ${renderTarjetasHuespedesMobile(huespedes||[])}
-        </div>
+        <!-- Tarjetas de huéspedes (se llenan de a 50 desde el servidor) -->
+        <div id="hues-cards-mobile"></div>
 
-        <!-- Paginación -->
-        <div style="display:flex;align-items:center;justify-content:space-between;margin:0.85rem 0;font-size:0.78rem;color:var(--texto-sub);">
-          <span>Mostrando ${totalHuespedes} de ${totalHuespedes} registro(s)</span>
-          <div style="display:flex;align-items:center;gap:0.4rem;">
-            <button style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-            <button style="width:30px;height:30px;border:none;border-radius:8px;background:var(--azul);color:white;font-weight:700;font-size:0.82rem;cursor:pointer;">1</button>
-            <button style="width:30px;height:30px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:13px;height:13px;"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-          </div>
-        </div>
+        <!-- Pie: "Mostrando X de N" + "Ver más" -->
+        <div id="hues-pie" style="margin:0.85rem 0;"></div>
       `;
+      await cargarListaHuespedes(true);
       return;
     }
 
@@ -6789,7 +6793,6 @@ async function moduloHuespedes() {
             <option value="">Todos los estados</option>
             <option value="registrado">Registrado</option>
             <option value="alojado">Alojado</option>
-            <option value="vip">VIP</option>
           </select>
         </div>
         <div style="display:flex;align-items:center;gap:0.4rem;background:var(--gris-bg);border:1px solid var(--gris-borde);border-radius:9px;padding:0.45rem 0.8rem;font-size:0.8rem;color:var(--texto-sub);">
@@ -6827,34 +6830,98 @@ async function moduloHuespedes() {
                 <th style="${thCss()};text-align:right;">ACCIONES</th>
               </tr>
             </thead>
-            <tbody id="hues-tbody">
-              ${renderFilasHuespedes(huespedes||[])}
-            </tbody>
+            <tbody id="hues-tbody"></tbody>
           </table>
         </div>
-        <!-- Paginación -->
-        <div style="padding:0.85rem 1.25rem;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--gris-borde);flex-wrap:wrap;gap:0.75rem;">
-          <span style="font-size:0.82rem;color:var(--texto-sub);">Mostrando ${totalHuespedes} de ${totalHuespedes} registro(s)</span>
-          <div style="display:flex;align-items:center;gap:0.5rem;">
-            <button style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><polyline points="15 18 9 12 15 6"/></svg>
-            </button>
-            <button style="width:32px;height:32px;border:none;border-radius:8px;background:var(--azul);color:white;font-weight:700;font-size:0.85rem;cursor:pointer;">1</button>
-            <button style="width:32px;height:32px;border:1px solid var(--gris-borde);border-radius:8px;background:white;cursor:pointer;display:flex;align-items:center;justify-content:center;color:var(--texto-sub);">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><polyline points="9 18 15 12 9 6"/></svg>
-            </button>
-            <select style="border:1px solid var(--gris-borde);border-radius:8px;padding:0.3rem 0.6rem;font-size:0.82rem;color:var(--texto-sub);background:white;cursor:pointer;">
-              <option>10 por página</option>
-              <option>25 por página</option>
-              <option>50 por página</option>
-            </select>
-          </div>
-        </div>
+        <!-- Pie: "Mostrando X de N" + "Ver más" (la lista se pide al servidor de a 50) -->
+        <div id="hues-pie" style="padding:0.85rem 1.25rem;border-top:1px solid var(--gris-borde);"></div>
       </div>
     `;
+    await cargarListaHuespedes(true);
   } catch (err) {
     contenido().innerHTML = errorBox('No se pudo cargar huéspedes', err.message);
   }
+}
+
+// ── Lista de huéspedes desde el servidor, de a 50 ─────────────
+// Búsqueda, fecha de registro, estado y orden se aplican en la base de datos,
+// así el buscador encuentra a cualquiera aunque el hotel tenga miles de huéspedes.
+const HUES_POR_PAGINA = 50;
+
+function consultaHuespedes(columnas = '*', conConteo = false) {
+  const q      = (document.getElementById('hues-buscar')?.value || '').replace(/[,()%*\\"']/g, ' ').trim();
+  const fecha  = document.getElementById('hues-filtro-fecha')?.value || '';
+  const estado = document.getElementById('hues-filtro-estado')?.value || '';
+  const orden  = document.getElementById('hues-filtro-orden')?.value || 'reciente';
+  const alojados = window._huesAlojadosIds || [];
+
+  if (estado === 'alojado' && !alojados.length) return null;   // nadie alojado → lista vacía
+  let consulta = db.from('huespedes').select(columnas, conConteo ? { count:'exact' } : undefined).eq('hotel_id', SESSION.hotel.id);
+
+  // Cada palabra debe aparecer en nombre, apellido, documento o celular ("jose perez" encuentra a José Pérez)
+  q.split(/\s+/).filter(Boolean).slice(0, 4).forEach(p => {
+    consulta = consulta.or(`nombres.ilike.%${p}%,apellidos.ilike.%${p}%,num_doc.ilike.%${p}%,celular.ilike.%${p}%`);
+  });
+
+  if (fecha) {
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const manana = new Date(hoy); manana.setDate(manana.getDate() + 1);
+    let desde = null, hasta = null;
+    if (fecha === 'hoy')        { desde = hoy; hasta = manana; }
+    if (fecha === 'semana')     { desde = new Date(hoy); desde.setDate(hoy.getDate() - 6); hasta = manana; }
+    if (fecha === 'mes')        { desde = new Date(hoy.getFullYear(), hoy.getMonth(), 1); hasta = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 1); }
+    if (fecha === 'mes_pasado') { desde = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1); hasta = new Date(hoy.getFullYear(), hoy.getMonth(), 1); }
+    if (desde) consulta = consulta.gte('created_at', desde.toISOString()).lt('created_at', hasta.toISOString());
+  }
+
+  if (estado === 'alojado')    consulta = consulta.in('id', alojados);
+  if (estado === 'registrado' && alojados.length) consulta = consulta.not('id', 'in', `(${alojados.join(',')})`);
+
+  if (orden === 'antiguo')     consulta = consulta.order('created_at', { ascending:true });
+  else if (orden === 'nombre') consulta = consulta.order('nombres', { ascending:true }).order('apellidos', { ascending:true });
+  else                         consulta = consulta.order('created_at', { ascending:false });
+  return consulta;
+}
+
+async function cargarListaHuespedes(desdeCero) {
+  const tbody = document.getElementById('hues-tbody');
+  const cards = document.getElementById('hues-cards-mobile');
+  const pie   = document.getElementById('hues-pie');
+  if (!tbody && !cards) return;
+  const turno = (window._huesTurno = (window._huesTurno || 0) + 1);   // ignora respuestas viejas (escritura rápida)
+  const desde = desdeCero ? 0 : (window._huespedesCache || []).length;
+  if (pie) pie.innerHTML = `<span style="font-size:0.8rem;color:var(--texto-sub);">Cargando…</span>`;
+
+  const consulta = consultaHuespedes('*', true);
+  const { data, count, error } = consulta
+    ? await consulta.range(desde, desde + HUES_POR_PAGINA - 1)
+    : { data: [], count: 0, error: null };
+  if (turno !== window._huesTurno) return;
+  if (error) { if (pie) pie.innerHTML = `<span style="color:var(--rojo);font-size:0.8rem;">No se pudo cargar: ${escapeHtml(error.message)}</span>`; return; }
+
+  const alojados = new Set(window._huesAlojadosIds || []);
+  const nuevos = (data || []).map(h => ({ ...h, _alojado: alojados.has(h.id) }));
+  window._huespedesCache = desdeCero ? nuevos : [...(window._huespedesCache || []), ...nuevos];
+  window._huesTotalFiltro = count || 0;
+
+  const hayFiltro = ['hues-buscar','hues-filtro-fecha','hues-filtro-estado'].some(id => document.getElementById(id)?.value);
+  if (tbody) {
+    if (desdeCero) tbody.innerHTML = nuevos.length ? renderFilasHuespedes(nuevos, 0)
+      : `<tr><td colspan="8" style="padding:2.5rem;text-align:center;color:var(--texto-sub);">${hayFiltro ? 'Sin resultados con esos filtros' : 'Sin huéspedes registrados aún'}</td></tr>`;
+    else tbody.insertAdjacentHTML('beforeend', renderFilasHuespedes(nuevos, desde));
+  }
+  if (cards) {
+    if (desdeCero) cards.innerHTML = nuevos.length ? renderTarjetasHuespedesMobile(nuevos)
+      : `<div style="text-align:center;padding:2rem;color:var(--texto-sub);">${hayFiltro ? 'Sin resultados con esos filtros' : 'Sin huéspedes registrados aún'}</div>`;
+    else cards.insertAdjacentHTML('beforeend', renderTarjetasHuespedesMobile(nuevos, desde));
+  }
+
+  const mostrados = window._huespedesCache.length, total = window._huesTotalFiltro;
+  if (pie) pie.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;font-size:0.82rem;color:var(--texto-sub);">
+      <span>${total ? `${mostrados} de ${total} huésped${total !== 1 ? 'es' : ''}` : 'Sin resultados'}</span>
+      ${mostrados < total ? `<button onclick="cargarListaHuespedes(false)" style="${ST.btnSec}">Ver ${Math.min(HUES_POR_PAGINA, total - mostrados)} más</button>` : ''}
+    </div>`;
 }
 
 function huesKpiMobile(label, valor, color, bg, svgPath, flecha) {
@@ -6874,7 +6941,7 @@ function huesKpiMobile(label, valor, color, bg, svgPath, flecha) {
     </div>`;
 }
 
-function renderTarjetasHuespedesMobile(lista) {
+function renderTarjetasHuespedesMobile(lista, desde = 0) {
   if (!lista.length) return `
     <div style="text-align:center;padding:2.5rem 1rem;color:var(--texto-sub);">
       <div style="font-size:2.5rem;margin-bottom:0.75rem;">👤</div>
@@ -6882,7 +6949,8 @@ function renderTarjetasHuespedesMobile(lista) {
       <div style="font-size:0.8rem;">Los huéspedes que registres aparecerán aquí</div>
     </div>`;
 
-  return lista.map((h, idx) => {
+  return lista.map((h, i) => {
+    const idx      = desde + i;
     const nombre   = `${h.nombres||''} ${h.apellidos||''}`.trim() || 'Sin nombre';
     const iniciales= nombre.split(/\s+/).slice(0,2).map(p=>p[0]||'').join('').toUpperCase()||'?';
     const colores  = ['#2563EB','#16A34A','#7C3AED','#CA8A04','#DC2626'];
@@ -6950,7 +7018,7 @@ function huesMetrica(label, valor, color, bg, icono, flecha) {
     </div>`;
 }
 
-function renderFilasHuespedes(lista) {
+function renderFilasHuespedes(lista, desde = 0) {
   if (!lista.length) return `
     <tr><td colspan="8" style="padding:3rem;text-align:center;color:var(--texto-sub);">
       <div style="font-size:2rem;margin-bottom:0.5rem;">👤</div>
@@ -6958,8 +7026,8 @@ function renderFilasHuespedes(lista) {
     </td></tr>`;
 
   return lista.map((h, i) => `
-    <tr class="hues-fila" data-buscar="${(h.nombres+' '+h.apellidos+' '+h.num_doc+' '+(h.celular||'')).toLowerCase()}" style="border-bottom:1px solid var(--gris-borde);">
-      <td style="${tdCss()};color:var(--texto-sub);">${i+1}</td>
+    <tr class="hues-fila" data-buscar="${escapeHtml((h.nombres+' '+h.apellidos+' '+h.num_doc+' '+(h.celular||'')).toLowerCase())}" style="border-bottom:1px solid var(--gris-borde);">
+      <td style="${tdCss()};color:var(--texto-sub);">${desde+i+1}</td>
       <td style="${tdCss()}">
         <div style="display:flex;align-items:center;gap:0.5rem;">
           <div style="width:32px;height:32px;border-radius:8px;background:#EFF6FF;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
@@ -7011,56 +7079,10 @@ function renderFilasHuespedes(lista) {
     </tr>`).join('');
 }
 
+// Buscador y filtros: se piden al servidor (espera 300 ms mientras se escribe)
 function filtrarHuespedes() {
-  const q         = (document.getElementById('hues-buscar')?.value||'').toLowerCase().trim();
-  const filtFecha = document.getElementById('hues-filtro-fecha')?.value || '';
-  const filtEst   = document.getElementById('hues-filtro-estado')?.value || '';
-  const orden     = document.getElementById('hues-filtro-orden')?.value || 'reciente';
-  const data      = window._huespedesAll || [];
-
-  const hoy = new Date(); hoy.setHours(0,0,0,0);
-  const iniSemana = new Date(hoy); iniSemana.setDate(hoy.getDate()-6); // últimos 7 días (registros pasados)
-  const inicioMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
-  const finMes    = new Date(hoy.getFullYear(), hoy.getMonth()+1, 0);
-  const inicioMesPasado = new Date(hoy.getFullYear(), hoy.getMonth()-1, 1);
-  const finMesPasado    = new Date(hoy.getFullYear(), hoy.getMonth(), 0);
-
-  let lista = data.filter(h => {
-    // Búsqueda texto
-    if (q && !`${h.nombres||''} ${h.apellidos||''} ${h.num_doc||''} ${h.celular||''}`.toLowerCase().includes(q)) return false;
-
-    // Filtro fecha registro
-    if (filtFecha) {
-      const reg = new Date(h.created_at); reg.setHours(0,0,0,0);
-      if (filtFecha === 'hoy'        && reg.getTime() !== hoy.getTime()) return false;
-      if (filtFecha === 'semana'     && (reg < iniSemana || reg > hoy)) return false;
-      if (filtFecha === 'mes'        && (reg < inicioMes || reg > finMes)) return false;
-      if (filtFecha === 'mes_pasado' && (reg < inicioMesPasado || reg > finMesPasado)) return false;
-    }
-
-    // Filtro estado
-    if (filtEst === 'vip' && (h.nivel_fidelidad||'').toLowerCase() !== 'vip') return false;
-    if (filtEst === 'alojado' && !h._alojado) return false;
-    if (filtEst === 'registrado' && h._alojado) return false;
-
-    return true;
-  });
-
-  // Ordenar
-  if (orden === 'reciente') lista.sort((a,b) => new Date(b.created_at) - new Date(a.created_at));
-  if (orden === 'antiguo')  lista.sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
-  if (orden === 'nombre')   lista.sort((a,b) => (a.nombres||'').localeCompare(b.nombres||'', 'es'));
-  window._huespedesFiltrados = lista; // lo que se exporta es lo que se ve
-
-  // Desktop
-  const tbody = document.getElementById('hues-tbody');
-  if (tbody) tbody.innerHTML = renderFilasHuespedes(lista);
-
-  // Móvil
-  const contMobile = document.getElementById('hues-cards-mobile');
-  if (contMobile) contMobile.innerHTML = lista.length
-    ? renderTarjetasHuespedesMobile(lista)
-    : '<div style="text-align:center;padding:2rem;color:var(--texto-sub);">Sin resultados</div>';
+  clearTimeout(window._huesBuscarTimer);
+  window._huesBuscarTimer = setTimeout(() => cargarListaHuespedes(true), 300);
 }
 
 function limpiarFiltrosHuespedes() {
@@ -7365,8 +7387,19 @@ async function exportarExcel(nombreBase, cabecera, filas, nombreHoja = 'Datos') 
   }
 }
 
-function exportarHuespedesCSV() {
-  const rows = window._huespedesFiltrados || window._huespedesCache || [];
+// Exporta TODOS los huéspedes que cumplen los filtros (no solo los 50 que se ven), en tandas de 1000
+async function exportarHuespedesCSV() {
+  const rows = [];
+  try {
+    for (let desde = 0; desde < 20000; desde += 1000) {
+      const consulta = consultaHuespedes('tipo_doc,num_doc,nombres,apellidos,celular,nacionalidad,created_at');
+      if (!consulta) break;
+      const { data, error } = await consulta.range(desde, desde + 999);
+      if (error) throw error;
+      rows.push(...(data || []));
+      if (!data || data.length < 1000) break;
+    }
+  } catch (e) { toast('No se pudo exportar', e.message, 'error'); return; }
   if (!rows.length) { toast('Sin datos', 'No hay huéspedes para exportar', 'warn'); return; }
   const cab = ['Tipo Doc','Documento','Nombres','Apellidos','Celular','Nacionalidad','Fecha Registro'];
   const filas = rows.map(h => [
@@ -7381,9 +7414,12 @@ function exportarHuespedesCSV() {
 async function moduloTiendita() {
   skeleton();
   try {
-    if (!SESSION.turnoActivo) SESSION.turnoActivo = await getTurnoAbierto();
-    const { data: productos } = await db.from('productos')
-      .select('*').eq('hotel_id', SESSION.hotel.id).eq('activo', true).order('nombre');
+    // Rendimiento: turno y productos a la vez
+    const [turnoLeido, { data: productos }] = await Promise.all([
+      SESSION.turnoActivo ? Promise.resolve(SESSION.turnoActivo) : getTurnoAbierto(),
+      db.from('productos').select('*').eq('hotel_id', SESSION.hotel.id).eq('activo', true).order('nombre'),
+    ]);
+    SESSION.turnoActivo = turnoLeido;
 
     // Categorías sin distinguir mayúsculas/espacios ("Bebidas" = "bebidas ")
     const prods = (productos || []).map(p => ({ ...p, categoria: String(p.categoria||'general').trim().toLowerCase() || 'general' }));
@@ -8221,7 +8257,7 @@ async function abrirVentaRapida() {
     </div>
     <div style="${ST.grupo}">
       <label style="${ST.label}">Método de pago</label>
-      <select style="${ST.input}" id="vr-metodo"><option value="efectivo">Efectivo</option><option value="yape">Yape</option><option value="plin">Plin</option><option value="transferencia">Transferencia</option></select>
+      <select style="${ST.input}" id="vr-metodo"><option value="efectivo">Efectivo</option><option value="yape">Yape</option><option value="plin">Plin</option><option value="tarjeta">Tarjeta (POS)</option><option value="transferencia">Transferencia</option></select>
     </div>
     <button style="${ST.btnPri}" id="vr-cobrar">Cobrar venta</button>
   `;
@@ -8355,10 +8391,11 @@ async function moduloLimpieza(silencioso = false) {
 async function moduloHabitacionConfig() {
   skeleton();
   try {
-    const { data: tipos } = await db.from('tipos_habitacion')
-      .select('*').eq('hotel_id', SESSION.hotel.id).eq('activo', true).order('nombre');
-    const { data: habs } = await db.from('habitaciones')
-      .select(`*, tipos_habitacion(nombre)`).eq('hotel_id', SESSION.hotel.id).order('numero');
+    // Rendimiento: tipos y habitaciones a la vez
+    const [{ data: tipos }, { data: habs }] = await Promise.all([
+      db.from('tipos_habitacion').select('*').eq('hotel_id', SESSION.hotel.id).eq('activo', true).order('nombre'),
+      db.from('habitaciones').select(`*, tipos_habitacion(nombre)`).eq('hotel_id', SESSION.hotel.id).order('numero'),
+    ]);
 
     window._tiposCache = tipos || [];
 
@@ -9793,7 +9830,7 @@ async function generarReporte() {
     ]);
 
     // ── Totales ──
-    const porMetodo = { efectivo:0, yape:0, plin:0, transferencia:0, mixto:0 };
+    const porMetodo = { efectivo:0, yape:0, plin:0, tarjeta:0, transferencia:0, mixto:0 };
     let ingresos = 0, egresos = 0;
     (movs||[]).forEach(m => {
       if (m.tipo==='ingreso') { ingresos+=Number(m.monto); const k=m.metodo_pago||'efectivo'; porMetodo[k]=(porMetodo[k]||0)+Number(m.monto); }
@@ -9977,7 +10014,7 @@ async function generarReporte() {
               </div>
             </div>
             <div style="flex:1;min-width:140px;">
-              ${[['Efectivo','#16A34A',porMetodo.efectivo],['Yape','#7C3AED',porMetodo.yape],['Plin','#0891B2',porMetodo.plin],['Transferencia','#EA580C',porMetodo.transferencia],['Mixto','#64748B',porMetodo.mixto]].map(([label,color,val])=>`
+              ${[['Efectivo','#16A34A',porMetodo.efectivo],['Yape','#7C3AED',porMetodo.yape],['Plin','#0891B2',porMetodo.plin],['Tarjeta (POS)','#DB2777',porMetodo.tarjeta],['Transferencia','#EA580C',porMetodo.transferencia],['Mixto','#64748B',porMetodo.mixto]].map(([label,color,val])=>`
                 <div style="display:flex;align-items:center;gap:0.6rem;padding:0.3rem 0;">
                   <span style="width:10px;height:10px;border-radius:50%;background:${color};flex-shrink:0;"></span>
                   <span style="flex:1;font-size:0.82rem;color:var(--texto-sub);">${label}</span>
@@ -10134,7 +10171,8 @@ async function generarReporte() {
         egresos:  dias.map(d => egrDia[d] || 0),
         neto:     dias.map((d,i) => valDias[i] - (egrDia[d] || 0)),
       };
-      if (dias.length) {
+      // Si el usuario ya salió de Reportes mientras cargaba, no hay dónde dibujar
+      if (dias.length && document.getElementById('chart-dias')) {
         window._chartDias = new Chart(document.getElementById('chart-dias'), {
           type: 'bar',
           data: { labels: labelsDia, datasets: [{ data: valDias, backgroundColor: '#2563EB', borderRadius: 5, barThickness: 'flex', maxBarThickness: 28 }] },
@@ -10142,17 +10180,17 @@ async function generarReporte() {
         });
       }
       // Dona de métodos (monto o cantidad de cobros)
-      const cantMetodo = { efectivo:0, yape:0, plin:0, transferencia:0, mixto:0 };
+      const cantMetodo = { efectivo:0, yape:0, plin:0, tarjeta:0, transferencia:0, mixto:0 };
       (movs||[]).forEach(m => { if (m.tipo==='ingreso') { const k = m.metodo_pago || 'efectivo'; cantMetodo[k] = (cantMetodo[k]||0) + 1; } });
       window._repDona = {
-        monto:    [porMetodo.efectivo,porMetodo.yape,porMetodo.plin,porMetodo.transferencia,porMetodo.mixto],
-        cantidad: [cantMetodo.efectivo,cantMetodo.yape,cantMetodo.plin,cantMetodo.transferencia,cantMetodo.mixto],
+        monto:    [porMetodo.efectivo,porMetodo.yape,porMetodo.plin,porMetodo.tarjeta,porMetodo.transferencia,porMetodo.mixto],
+        cantidad: [cantMetodo.efectivo,cantMetodo.yape,cantMetodo.plin,cantMetodo.tarjeta,cantMetodo.transferencia,cantMetodo.mixto],
       };
-      window._chartMetodos = new Chart(document.getElementById('chart-metodos'), {
+      if (document.getElementById('chart-metodos')) window._chartMetodos = new Chart(document.getElementById('chart-metodos'), {
         type: 'doughnut',
         data: {
-          labels: ['Efectivo','Yape','Plin','Transferencia','Mixto'],
-          datasets: [{ data: window._repDona.monto, backgroundColor:['#16A34A','#7C3AED','#0891B2','#EA580C','#64748B'], borderWidth:3, borderColor:'#fff' }],
+          labels: ['Efectivo','Yape','Plin','Tarjeta (POS)','Transferencia','Mixto'],
+          datasets: [{ data: window._repDona.monto, backgroundColor:['#16A34A','#7C3AED','#0891B2','#DB2777','#EA580C','#64748B'], borderWidth:3, borderColor:'#fff' }],
         },
         options: { plugins:{ legend:{ display:false } }, cutout:'68%' },
       });
@@ -10274,30 +10312,24 @@ let _restCartaFija = [], _restMenuDia = [], _restComandas = [],
 async function moduloRestaurante() {
   skeleton();
   try {
-    if (!SESSION.turnoActivo) SESSION.turnoActivo = await getTurnoAbierto();
-
-    // Config de mesas
-    const { data: cfgRest } = await db.from('config_restaurante')
-      .select('*').eq('hotel_id', SESSION.hotel.id).single();
-    _restNumMesas = cfgRest?.num_mesas || 12;
-
-    // Carta fija (bebidas, snacks, etc.)
-    const { data: cartaFija } = await db.from('carta_restaurante')
-      .select('*').eq('hotel_id', SESSION.hotel.id).eq('activo', true).order('categoria').order('nombre');
-    _restCartaFija = cartaFija || [];
-
-    // Menú del día (fecha de hoy)
+    // Rendimiento: turno, mesas, carta, menú del día y comandas se piden a la vez (antes 5 esperas en fila)
     const hoy = fechaLocalISO();
-    const { data: menuDia } = await db.from('menu_dia')
-      .select('*').eq('hotel_id', SESSION.hotel.id).eq('fecha', hoy).eq('activo', true).order('nombre');
+    const [turnoLeido, { data: cfgRest }, { data: cartaFija }, { data: menuDia }, { data: todasComandas }] = await Promise.all([
+      SESSION.turnoActivo ? Promise.resolve(SESSION.turnoActivo) : getTurnoAbierto(),
+      db.from('config_restaurante').select('*').eq('hotel_id', SESSION.hotel.id).maybeSingle(),
+      db.from('carta_restaurante').select('*').eq('hotel_id', SESSION.hotel.id).eq('activo', true).order('categoria').order('nombre'),
+      db.from('menu_dia').select('*').eq('hotel_id', SESSION.hotel.id).eq('fecha', hoy).eq('activo', true).order('nombre'),
+      // Solo comandas vivas (antes traía las últimas 100 de todo el historial y filtraba)
+      db.from('ventas_directas').select('*, items_venta_directa(*)')
+        .eq('hotel_id', SESSION.hotel.id)
+        .like('notas', 'MESA:%')
+        .or('notas.like.*ESTADO:abierta*,notas.like.*ESTADO:preparando*,notas.like.*ESTADO:listo*')
+        .order('created_at', { ascending: false }).limit(100),
+    ]);
+    SESSION.turnoActivo = turnoLeido;
+    _restNumMesas = cfgRest?.num_mesas || 12;
+    _restCartaFija = cartaFija || [];
     _restMenuDia = menuDia || [];
-
-    // Comandas activas
-    const { data: todasComandas } = await db.from('ventas_directas')
-      .select('*, items_venta_directa(*)')
-      .eq('hotel_id', SESSION.hotel.id)
-      .like('notas', 'MESA:%')
-      .order('created_at', { ascending: false }).limit(100);
     _restComandas = (todasComandas||[]).filter(c=>{
       const n = c.notas||'';
       return n.includes('ESTADO:abierta') || n.includes('ESTADO:preparando') || n.includes('ESTADO:listo');
@@ -11379,10 +11411,10 @@ async function abrirCobroMesa(numMesa, comandaId, tipo) {
 
       <!-- Método de pago -->
       <div style="${ST.grupo}"><label style="${ST.label}">Método de pago</label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;" id="metodo-btns">
-          ${['efectivo','yape','plin','transferencia'].map((m,i)=>`
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.5rem;" id="metodo-btns">
+          ${['efectivo','yape','plin','tarjeta','transferencia'].map((m,i)=>`
             <button onclick="selMetodoCobro('${m}',this)" class="btn-metodo" style="padding:0.6rem;border-radius:9px;border:1.5px solid ${i===0?'var(--azul)':'var(--gris-borde)'};background:${i===0?'#EFF6FF':'white'};font-size:0.85rem;font-weight:600;cursor:pointer;color:${i===0?'var(--azul)':'var(--texto-sub)'};">
-              ${m==='efectivo'?'💵':m==='yape'?'📱':m==='plin'?'📲':'🏦'} ${m.charAt(0).toUpperCase()+m.slice(1)}
+              ${m==='efectivo'?'💵':m==='yape'?'📱':m==='plin'?'📲':m==='tarjeta'?'💳':'🏦'} ${m.charAt(0).toUpperCase()+m.slice(1)}
             </button>`).join('')}
         </div>
         <input type="hidden" id="rest-metodo" value="efectivo">

@@ -27,15 +27,11 @@
   <!-- Supabase JS v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- Lucide icons -->
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
-
-  <!-- QR + PDF para tickets de facturación (Fase 5) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-  <!-- Chart.js para gráficos de reportes y ocupación -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <!-- Rendimiento: se quitó "lucide" (no se usaba y frenaba el arranque).
+       QR y gráficos se cargan sin bloquear la pantalla (defer); el PDF (jsPDF)
+       se descarga solo cuando alguien pide un PDF (ver cargarJsPDF en facturacionSunat.js). -->
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
   <!-- Estilos auxiliares e impresión de tickets 80mm -->
   <link rel="stylesheet" href="style.css" />
@@ -103,7 +99,7 @@
       #login-bg-mobile {
         position: fixed;
         inset: 0;
-        background: url('./banner.png') center/cover no-repeat;
+        background: url('./banner.jpg') center/cover no-repeat;
         z-index: 0;
       }
       #login-bg-mobile::after {
@@ -1261,7 +1257,7 @@
 
   <!-- Izquierda: banner foto lobby -->
   <div class="login-banner">
-    <img src="banner.png" alt="Lobby del hotel" id="img-banner" />
+    <img src="banner.jpg" alt="Lobby del hotel" id="img-banner" />
     <div class="login-banner-overlay">
       <div>
         <div class="banner-tag">Hoteles más simples</div>
@@ -1964,6 +1960,16 @@ function navegarA(modulo) {
     });
   } catch (e) { console.warn('nav activo:', e); }
 
+  // Rendimiento: si ya se visitó esta sección, mostrar al instante su última vista
+  // mientras se actualiza en segundo plano (skeleton() no borra esa vista).
+  const claveVista = modulo + (window.innerWidth <= 768 ? ':m' : ':d');
+  const contVista  = document.getElementById('contenido');
+  window._vistaDesdeCache = false;
+  if (window._vistaCache?.[claveVista] && contVista) {
+    contVista.innerHTML = window._vistaCache[claveVista];
+    window._vistaDesdeCache = true;
+  }
+
   // Renderizar el módulo
   if (typeof renderModulo === 'function') {
     try {
@@ -1972,8 +1978,14 @@ function navegarA(modulo) {
       // volver a pintar el módulo que el usuario eligió al final.
       if (p && typeof p.then === 'function') {
         p.then(() => {
-          if (moduloActual !== modulo && moduloActual) renderModulo(moduloActual);
-        }).catch(() => {});
+          window._vistaDesdeCache = false;
+          if (moduloActual !== modulo && moduloActual) { renderModulo(moduloActual); return; }
+          // Guardar la vista ya actualizada para la próxima visita
+          const c = document.getElementById('contenido');
+          if (c && !c.innerText.includes('Cargando…')) (window._vistaCache ||= {})[claveVista] = c.innerHTML;
+        }).catch(() => { window._vistaDesdeCache = false; });
+      } else {
+        window._vistaDesdeCache = false;
       }
     } catch (e) {
       console.error('Error en renderModulo(' + modulo + '):', e);
@@ -2052,6 +2064,7 @@ db.auth.onAuthStateChange(async (event, session) => {
   if (event === 'SIGNED_OUT' || !session) {
     _sesionInicializada = false;
     _usuarioActualId = null;
+    window._vistaCache = {};   // vistas guardadas en memoria: nunca pasan a otro usuario
     mostrarLogin();
     return;
   }
@@ -2072,15 +2085,18 @@ db.auth.onAuthStateChange(async (event, session) => {
   }
 
   try {
+    window._vistaCache = {};
     SESSION.user = session.user;
     _usuarioActualId = session.user.id;
 
-    // Cargar perfil
-    SESSION.perfil = await cargarPerfil(session.user.id);
-
-    // Si tiene hotel asignado, cargarlo
-    if (SESSION.perfil.hotel_id) {
-      SESSION.hotel = await cargarHotel(SESSION.perfil.hotel_id);
+    // Perfil + hotel en UNA sola consulta (rendimiento: antes eran dos esperas seguidas)
+    {
+      const { data: pf, error: ePf } = await db.from('perfiles_usuarios')
+        .select('*, hoteles(*)').eq('user_id', session.user.id).single();
+      if (ePf) throw ePf;
+      const { hoteles: hotelDelPerfil, ...perfil } = pf;
+      SESSION.perfil = perfil;
+      SESSION.hotel  = perfil.hotel_id ? (hotelDelPerfil || await cargarHotel(perfil.hotel_id)) : null;
     }
 
     // Topbar
@@ -2123,15 +2139,16 @@ db.auth.onAuthStateChange(async (event, session) => {
 
     mostrarApp();
 
-    // Turno activo (para roles de caja)
-    if (['admin', 'recepcion'].includes(SESSION.perfil.rol)) {
-      SESSION.turnoActivo = await getTurnoAbierto();
+    // Rendimiento: turno, servicio DNI/RUC y notificaciones se cargan EN SEGUNDO PLANO.
+    // Antes se esperaban ~8 consultas seguidas antes de mostrar la primera pantalla.
+    if (['admin', 'recepcion', 'restaurante'].includes(SESSION.perfil.rol)) {
+      getTurnoAbierto().then(t => { if (SESSION.turnoActivo === undefined || SESSION.turnoActivo === null) SESSION.turnoActivo = t; }).catch(() => {});
     }
-
-    // Notificaciones — cargar al inicio y refrescar cada 5 min
     if (!SESSION.perfil.es_superadmin) {
-      if (typeof inicializarApiDoc === 'function') await inicializarApiDoc();
-      await cargarNotificaciones();
+      setTimeout(() => {
+        if (typeof inicializarApiDoc === 'function') inicializarApiDoc().catch(() => {});
+        cargarNotificaciones().catch(() => {});
+      }, 400);   // después de pintar la primera pantalla
       if (window._notiTicker) clearInterval(window._notiTicker);
       window._notiTicker = setInterval(cargarNotificaciones, 5 * 60 * 1000);
     }

@@ -22,14 +22,11 @@ async function cargarConfigSunat() {
   if (!SESSION.hotel) return;
   try {
     // 1. Config del hotel (series, usuario SOL, etc.)
-    const { data: cfg } = await db.from('configuracion_sunat')
-      .select('*').eq('hotel_id', SESSION.hotel.id).single();
-
-    // 2. Token FacturaLibre desde configuracion_global (solo superadmin puede verlo)
-    //    Para los hoteles, la RPC intermedia la petición — el token nunca llega al browser
-    const { data: gl } = await db.from('configuracion_global')
-      .select('fl_endpoint, proveedor_emision')
-      .eq('id', 1).maybeSingle();
+    // 1 y 2 a la vez (rendimiento). configuracion_global solo la lee el SuperAdmin: para los hoteles vuelve vacía
+    const [{ data: cfg }, { data: gl }] = await Promise.all([
+      db.from('configuracion_sunat').select('*').eq('hotel_id', SESSION.hotel.id).maybeSingle(),
+      db.from('configuracion_global').select('fl_endpoint, proveedor_emision').eq('id', 1).maybeSingle(),
+    ]);
 
     if (cfg?.token_api) {
       // Si el hotel tiene su propio token de FacturaLibre (empresa propia)
@@ -94,11 +91,24 @@ const NOMBRE_TIPO = { boleta: 'BOLETA DE VENTA', factura: 'FACTURA', nota_credit
 async function moduloFacturacion() {
   skeleton();
   try {
-    await cargarConfigSunat();
-    if (!SESSION.turnoActivo) SESSION.turnoActivo = await getTurnoAbierto();
+    // Lista por MES (antes: los últimos 150 de todo el historial). Por defecto, el mes actual.
+    window._factMes = window._factMes || fechaLocalISO().slice(0, 7);
+    const [anioM, mesM] = window._factMes.split('-').map(Number);
+    const iniMes = new Date(anioM, mesM - 1, 1), finMes = new Date(anioM, mesM, 1);
+    const etiquetaMes = nombreMesFact(window._factMes);
 
-    // Cargar cuota mensual
-    const cuota = await verificarCuotaCPE();
+    // Rendimiento: configuración, turno, cuota y comprobantes se piden a la vez (antes en fila)
+    const [, turnoLeido, cuota, { data: comps, error }] = await Promise.all([
+      cargarConfigSunat(),
+      SESSION.turnoActivo ? Promise.resolve(SESSION.turnoActivo) : getTurnoAbierto(),
+      verificarCuotaCPE(),
+      db.from('comprobantes_sunat').select('*')
+        .eq('hotel_id', SESSION.hotel.id)
+        .gte('created_at', iniMes.toISOString()).lt('created_at', finMes.toISOString())
+        .order('created_at', { ascending: false })
+        .limit(3000),
+    ]);
+    SESSION.turnoActivo = turnoLeido;
     _cuotaCache = cuota;
     const pctUso = Math.min(100, Math.round((cuota.emitidos / cuota.limite) * 100));
     const colorBarra = pctUso >= 90 ? '#DC2626' : pctUso >= 70 ? '#EA580C' : '#16A34A';
@@ -118,12 +128,6 @@ async function moduloFacturacion() {
       </div>
     `;
 
-    const { data: comps, error } = await db
-      .from('comprobantes_sunat')
-      .select('*')
-      .eq('hotel_id', SESSION.hotel.id)
-      .order('created_at', { ascending: false })
-      .limit(150);
     if (error) throw error;
 
     const lista = comps || [];
@@ -144,6 +148,8 @@ async function moduloFacturacion() {
     const esMobile = window.innerWidth <= 768;
     // Solo quien tiene acceso a Config. SUNAT (el dueño) ve los accesos a ella
     const verCfgSunat = typeof puedeVerModulo === 'function' && puedeVerModulo('sunat-config');
+    // Si venía un filtro de tipo elegido (Facturas / Boletas), aplicarlo al pintar el mes
+    setTimeout(() => { if ((window._factFiltro || 'Todos') !== 'Todos') filtrarFactBuscar(); }, 0);
 
     if (esMobile) {
       contenido().innerHTML = `
@@ -187,9 +193,9 @@ async function moduloFacturacion() {
 
         <!-- 5 KPIs: 2x2 + 1 ancho completo -->
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;margin-bottom:0.6rem;">
-          ${factKpiMobile('Comprobantes', totalComps, 'Total registrado', '#2563EB', '#EFF6FF',
+          ${factKpiMobile('Comprobantes', totalComps, etiquetaMes, '#2563EB', '#EFF6FF',
             '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>', false)}
-          ${factKpiMobile(soles(montoTotal), '', 'Monto total de comprobantes', '#16A34A', '#F0FDF4',
+          ${factKpiMobile(soles(montoTotal), '', 'Monto total del mes', '#16A34A', '#F0FDF4',
             '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>', true)}
           ${factKpiMobile('Facturas', totalFact, 'Facturas emitidas', '#7C3AED', '#F5F3FF',
             '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/>', false)}
@@ -237,14 +243,14 @@ async function moduloFacturacion() {
 
         <!-- Filtros fila -->
         <div style="display:flex;gap:0.5rem;margin-bottom:1rem;overflow-x:auto;scrollbar-width:none;">
-          <select id="fact-filtro-fecha" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todas las fechas</option><option value="hoy">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="mes">Este mes</option></select>
+          ${selectorMesFact('background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;')}
           <select id="fact-filtro-estado" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:999px;padding:0.45rem 0.7rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todos los estados</option><option value="PENDIENTE_ENVIO">Pendiente de envío</option><option value="ACEPTADO">Aceptado</option><option value="RECHAZADO">Rechazado</option><option value="ANULADO">Anulado</option></select>
         </div>
 
         <!-- Lista comprobantes móvil -->
         <div id="fact-tbody-mobile">
           ${lista.length === 0
-            ? `<div style="text-align:center;padding:2.5rem;color:var(--texto-sub);"><div style="font-size:2.5rem;margin-bottom:0.75rem;">📄</div><div style="font-weight:600;color:var(--texto);">Sin comprobantes emitidos aún</div></div>`
+            ? `<div style="text-align:center;padding:2.5rem;color:var(--texto-sub);"><div style="font-size:2.5rem;margin-bottom:0.75rem;">📄</div><div style="font-weight:600;color:var(--texto);">Sin comprobantes en ${etiquetaMes}</div><div style="font-size:0.78rem;margin-top:0.25rem;">Elige otro mes arriba</div></div>`
             : lista.map(c => tarjetaComprobanteMobile(c)).join('')}
         </div>
 
@@ -308,9 +314,9 @@ async function moduloFacturacion() {
 
       <!-- 5 tarjetas métricas -->
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(175px,1fr));gap:1rem;margin-bottom:1.5rem;">
-        ${factMetrica('Comprobantes', totalComps, 'Total registrado', '#2563EB', '#EFF6FF',
+        ${factMetrica('Comprobantes', totalComps, etiquetaMes, '#2563EB', '#EFF6FF',
           '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',false)}
-        ${factMetrica(soles(montoTotal), '', 'Monto total de comprobantes', '#16A34A', '#F0FDF4',
+        ${factMetrica(soles(montoTotal), '', 'Monto total del mes', '#16A34A', '#F0FDF4',
           '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',false, true)}
         ${factMetrica('Facturas', totalFact, 'emitidas', '#7C3AED', '#F5F3FF',
           '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>',false)}
@@ -338,7 +344,7 @@ async function moduloFacturacion() {
             <svg viewBox="0 0 24 24" fill="none" stroke="#94A3B8" stroke-width="2" stroke-linecap="round" style="width:14px;height:14px;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input type="text" id="fact-buscar" placeholder="Buscar por número, cliente o tipo…" oninput="filtrarFactBuscar()" style="border:none;background:none;outline:none;font-size:0.82rem;width:200px;font-family:inherit;color:var(--texto);">
           </div>
-          <select id="fact-filtro-fecha" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todas las fechas</option><option value="hoy">Hoy</option><option value="7">Últimos 7 días</option><option value="30">Últimos 30 días</option><option value="mes">Este mes</option></select>
+          ${selectorMesFact('background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;')}
           <select id="fact-filtro-estado" onchange="filtrarFactBuscar()" style="background:white;border:1px solid var(--gris-borde);border-radius:10px;padding:0.5rem 0.6rem;font-size:0.8rem;color:var(--texto-sub);cursor:pointer;font-family:inherit;flex-shrink:0;"><option value="">Todos los estados</option><option value="PENDIENTE_ENVIO">Pendiente de envío</option><option value="ACEPTADO">Aceptado</option><option value="RECHAZADO">Rechazado</option><option value="ANULADO">Anulado</option></select>
         </div>
       </div>
@@ -361,7 +367,7 @@ async function moduloFacturacion() {
             </thead>
             <tbody id="fact-tbody">
               ${lista.length === 0
-                ? `<tr><td colspan="8" style="padding:3rem;text-align:center;color:var(--texto-sub);"><div style="font-size:2rem;margin-bottom:0.5rem;">📄</div>Sin comprobantes emitidos aún.</td></tr>`
+                ? `<tr><td colspan="8" style="padding:3rem;text-align:center;color:var(--texto-sub);"><div style="font-size:2rem;margin-bottom:0.5rem;">📄</div>Sin comprobantes en ${etiquetaMes}. Elige otro mes arriba.</td></tr>`
                 : lista.map((c,i) => filaComprobante(c, i+1)).join('')}
             </tbody>
           </table>
@@ -532,7 +538,6 @@ function filaComprobante(c, idx) {
 
 function filtrarFacturacion(tipo) {
   window._factFiltro = tipo;
-  const lista = Object.values(window._compsCache||{});
   document.querySelectorAll('[id^="fact-btn-"]').forEach(btn => {
     const esActivo = btn.id === 'fact-btn-'+tipo.replace(/\s/g,'_');
     btn.style.background = esActivo ? 'var(--azul)' : 'white';
@@ -540,27 +545,40 @@ function filtrarFacturacion(tipo) {
     btn.style.borderColor = esActivo ? 'transparent' : 'var(--gris-borde)';
     btn.style.boxShadow = esActivo ? '0 4px 12px rgba(37,99,235,0.3)' : 'none';
   });
-  const mapa = { 'Todos': null, 'Facturas':'factura', 'Boletas de venta':'boleta' };
-  const filtro = mapa[tipo];
-  const filtrada = filtro ? lista.filter(c => c.tipo_doc===filtro) : lista;
-  const tbody = document.getElementById('fact-tbody');
-  if (tbody) tbody.innerHTML = filtrada.length
-    ? filtrada.map((c,i) => filaComprobante(c,i+1)).join('')
-    : `<tr><td colspan="8" style="padding:2.5rem;text-align:center;color:var(--texto-sub);">Sin comprobantes de este tipo.</td></tr>`;
+  // Antes redibujaba solo la tabla de PC (en celular no hacía nada) y borraba la búsqueda/estado;
+  // ahora se combina con buscador y estado, en PC y celular.
+  filtrarFactBuscar();
 }
 
 function filtrarFactBuscar() {
-  const q   = (document.getElementById('fact-buscar')?.value||'').toLowerCase().trim();
-  const per = document.getElementById('fact-filtro-fecha')?.value || '';
-  const est = document.getElementById('fact-filtro-estado')?.value || '';
-  const hoy = fechaLocalISO();
-  const hace = n => { const d = new Date(); d.setDate(d.getDate() - n); return fechaLocalISO(d); };
-  const mes  = hoy.slice(0, 7);
-  aplicarFiltroFilas('.fact-fila', el => {
-    const f = el.dataset.fecha || '';
-    const okFecha = !per || (per === 'hoy' && f === hoy) || (per === '7' && f >= hace(6)) || (per === '30' && f >= hace(29)) || (per === 'mes' && f.startsWith(mes));
-    return (!q || el.dataset.buscar.includes(q)) && okFecha && (!est || el.dataset.estado === est);
-  });
+  const q    = (document.getElementById('fact-buscar')?.value||'').toLowerCase().trim();
+  const est  = document.getElementById('fact-filtro-estado')?.value || '';
+  const tipo = { 'Facturas':'factura', 'Boletas de venta':'boleta' }[window._factFiltro] || '';
+  aplicarFiltroFilas('.fact-fila', el =>
+    (!q || el.dataset.buscar.includes(q)) && (!est || el.dataset.estado === est) && (!tipo || el.dataset.tipo === tipo));
+}
+
+// Mes de la lista de comprobantes ("2026-09" → "Setiembre 2026")
+function nombreMesFact(ym) {
+  const [a, m] = ym.split('-').map(Number);
+  const t = new Date(a, m - 1, 1).toLocaleDateString('es-PE', { month:'long', year:'numeric' }).replace(' de ', ' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+// Selector de mes: últimos 24 meses (el actual primero)
+function selectorMesFact(estilo) {
+  const hoy = new Date(), opciones = [];
+  for (let i = 0; i < 24; i++) {
+    const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    opciones.push(`<option value="${ym}" ${ym === window._factMes ? 'selected' : ''}>${nombreMesFact(ym)}</option>`);
+  }
+  return `<select id="fact-filtro-mes" title="Mes" onchange="cambiarMesFacturacion(this.value)" style="${estilo}">${opciones.join('')}</select>`;
+}
+
+function cambiarMesFacturacion(ym) {
+  window._factMes = ym;
+  moduloFacturacion();
 }
 
 
@@ -1051,10 +1069,26 @@ function imprimirTicket(comprobanteId) {
 // ════════════════════════════════════════════════════════════
 //  DESCARGAR PDF (usa jsPDF, ancho 80mm)
 // ════════════════════════════════════════════════════════════
+// jsPDF (≈370 KB) se descarga solo la primera vez que alguien pide un PDF
+function cargarJsPDF() {
+  if (window.jspdf) return Promise.resolve();
+  if (!window._jspdfPromesa) {
+    window._jspdfPromesa = new Promise((ok, falla) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+      s.onload = () => ok();
+      s.onerror = () => { window._jspdfPromesa = null; falla(new Error('jsPDF')); };
+      document.head.appendChild(s);
+    });
+  }
+  return window._jspdfPromesa;
+}
+
 async function descargarPDF(comprobanteId) {
   const c = window._compsCache?.[comprobanteId];
   if (!c) return;
-  if (typeof window.jspdf === 'undefined') { toast('Cargando PDF…', 'Intenta de nuevo en un momento', 'warn'); return; }
+  try { await cargarJsPDF(); }
+  catch (_) { toast('No se pudo preparar el PDF', 'Revisa tu conexión e inténtalo otra vez', 'warn'); return; }
 
   const { jsPDF } = window.jspdf;
   const base = Number(c.total) - Number(c.igv);

@@ -1,5 +1,6 @@
 // HospedaYa Service Worker — GitHub Pages compatible
-const CACHE_NAME = 'hospedaya-v9';
+// Subir la versión cada vez que cambien archivos de la app.
+const CACHE_NAME = 'hospedaya-v13';
 
 const ARCHIVOS = [
   './',
@@ -8,12 +9,16 @@ const ARCHIVOS = [
   './facturacionSunat.js',
   './config.js',
   './supabaseClient.js',
+  './style.css',
   './manifest.json',
+  './banner.jpg',
+  './favicon.png',
+  './apple-touch-icon.png',
   './icon-192x192.png',
   './icon-512x512.png',
 ];
 
-// INSTALACIÓN
+// INSTALACIÓN: descarga la versión nueva completa
 self.addEventListener('install', e => {
   console.log('[SW] Instalando', CACHE_NAME);
   e.waitUntil(
@@ -40,39 +45,36 @@ self.addEventListener('activate', e => {
   );
 });
 
-// FETCH — Network First con fallback a caché
+// FETCH — Rendimiento: "copia guardada primero, actualizar en segundo plano".
+// Antes era "internet primero": cada apertura esperaba descargar app.js (~800 KB)
+// aunque ya estuviera guardado. Ahora abre al instante y la copia se refresca sola;
+// una versión nueva (CACHE_NAME distinto) se instala completa y la página se recarga.
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
 
-  // No interceptar externos ni no-GET
+  // No interceptar otros sitios (Supabase, CDNs, fuentes) ni peticiones que no sean GET
   if (e.request.method !== 'GET') return;
-  if (
-    url.hostname.includes('supabase') ||
-    url.hostname.includes('googleapis') ||
-    url.hostname.includes('cdnjs') ||
-    url.hostname.includes('jsdelivr') ||
-    url.hostname.includes('unpkg') ||
-    url.hostname.includes('tailwindcss') ||
-    url.hostname.includes('gstatic') ||
-    url.hostname.includes('lucide')
-  ) return;
+  if (url.origin !== self.location.origin) return;
 
   e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        if (res && res.status === 200) {
-          const clone = res.clone();
-          caches.open(CACHE_NAME).then(c => c.put(e.request, clone));
-        }
-        return res;
-      })
-      .catch(() =>
-        caches.match(e.request).then(cached => {
-          if (cached) return cached;
-          // SPA fallback → devolver index.html
-          return caches.match('./index.html');
+    caches.open(CACHE_NAME).then(async cache => {
+      const guardado = await cache.match(e.request, { ignoreSearch: e.request.mode === 'navigate' });
+      const deRed = fetch(e.request)
+        .then(res => {
+          if (res && res.status === 200) cache.put(e.request, res.clone());
+          return res;
         })
-      )
+        .catch(() => null);
+
+      if (guardado) {
+        e.waitUntil(deRed);          // refresca la copia sin hacer esperar al usuario
+        return guardado;
+      }
+      const res = await deRed;
+      if (res) return res;
+      // Sin internet y sin copia: SPA → index.html
+      return (await cache.match('./index.html')) || Response.error();
+    })
   );
 });
 

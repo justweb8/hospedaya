@@ -1,105 +1,227 @@
-# Cambios — 28/09/2026 (revisión completa como dueño del hotel)
+# Historial de cambios — HospedaYa
 
-Respaldo previo: `..\..\RESPALDO-hospedaya-2026-09-28\` (versión GitHub y versión Drive del 23/09).
+Respaldo previo a todo esto: `Downloads\HOSPEDAYA-20260924T025822Z-1-001\RESPALDO-hospedaya-2026-09-28\` (versión de GitHub y versión de Drive del 23/09).
+Los cambios de base de datos están en `sql/` (todos aplicados en Supabase, proyecto `gcuicpitzbcwqxlloodm`).
 
-## Errores corregidos
-- **Escrituras sin revisar errores (49 lugares):** cobros, check-in/out, ventas, restaurante, etc. mostraban "guardado" aunque la base de datos rechazara el dato. Ahora usan `chk()` (supabaseClient.js) y muestran el error real.
+---
+
+## 30/09/2026 — Nuevo método de pago: Tarjeta (POS)
+Respaldo previo: `RESPALDO-hospedaya-2026-09-30\antes-tarjeta\`.
+- **Base de datos** (`sql/10-pago-con-tarjeta.sql`, aplicado): se agregó `tarjeta` a los métodos permitidos en `estadias_reservas`, `ventas_directas`, `movimientos_caja` y `suscripciones_pagos`.
+- **Dónde se puede elegir "Tarjeta":**
+  - check-in, check-out (saldo) y adelanto de reserva;
+  - tiendita (venta rápida);
+  - cobro de mesa en el restaurante;
+  - ingreso manual en caja;
+  - pagos de suscripción en SuperAdmin.
+- **Caja:**
+  - nueva tarjeta rosada "Tarjeta (POS)" en PC y celular; en PC hay 2 filas de 3 (clase `.caja-metodos` en `style.css`);
+  - filtro "Tarjeta (POS)" en la lista de movimientos;
+  - aparece en el reporte de caja impreso y en el ticket de cierre.
+  - Como Yape y Plin, **no suma al efectivo esperado en el cajón**.
+- **Reportes:** "Tarjeta (POS)" en la dona y en la lista de ingresos por método.
+- **Arreglo de paso:** Reportes ya no muestra el aviso "Failed to create chart" si se sale de la sección antes de que termine de cargar.
+- **Probado:**
+  - Cobro de prueba de S/ 1 con tarjeta en caja: se guardó, apareció en su tarjeta y en el filtro, y el efectivo esperado no cambió. Luego se borró.
+  - Se vieron en celular los botones de cobro del restaurante y del check-out, sin cobrar.
+  - Reportes, sin errores.
+- Caché `hospedaya-v13`.
+
+## 30/09/2026 — Listas largas: Huéspedes y Comprobantes
+Respaldo previo: `RESPALDO-hospedaya-2026-09-30\antes-listas\`.
+- **Huéspedes:**
+  - antes traía los últimos 300 y el buscador solo buscaba dentro de esos 300 (con más huéspedes, los antiguos "desaparecían");
+  - ahora la lista se pide al servidor de a 50, con un botón "Ver N más" y el pie "50 de 68 huéspedes";
+  - el buscador busca en **todos** los huéspedes por nombre, apellido, DNI o celular, con varias palabras ("tester quispe 3");
+  - fecha, estado y orden se aplican en el servidor;
+  - "Exportar" lleva **todos** los que cumplen el filtro, no solo los visibles;
+  - el indicador "Huéspedes registrados" es el total real;
+  - se quitó el filtro "VIP", que nunca funcionó (la base de datos no guarda esa información).
+- **Comprobantes (Facturación):**
+  - se ven **por mes**, con un selector de los últimos 24 meses (por defecto, el mes actual; antes eran los últimos 150 de todo el historial);
+  - las tarjetas muestran el total y el monto **del mes**;
+  - un mes sin comprobantes muestra "Sin comprobantes en Junio 2026. Elige otro mes arriba.";
+  - los filtros Facturas/Boletas se combinan con el buscador y el estado. En **celular no funcionaban**; ahora sí.
+- **Probado como tester** con datos masivos creados en Supabase (`sql/prueba-listas-datos-masivos.sql`: 60 huéspedes y 70 comprobantes de julio, agosto y setiembre, con series de prueba PRB1/PRF1 que no tocan la numeración real):
+  - "Ver más";
+  - buscar a un huésped que antes no estaba cargado;
+  - varias palabras, celular y caracteres raros;
+  - filtros de fecha y estado (comparados con los conteos reales de la base de datos);
+  - orden y "Limpiar";
+  - exportar (68 y 20 con filtro);
+  - ficha, editar y guardar, y WhatsApp en filas cargadas con "Ver más";
+  - cambio de mes (montos verificados: julio S/ 4,635.00, agosto S/ 3,825.00);
+  - mes vacío, filtros de tipo/estado/búsqueda, paginador, "⋮ → Ver detalle" y WhatsApp.
+
+  Todo en PC y celular, sin errores. Caché `hospedaya-v12`.
+
+---
+
+## 30/09/2026 — Velocidad (todos los roles)
+Respaldo previo: `Downloads\HOSPEDAYA-20260924T025822Z-1-001\RESPALDO-hospedaya-2026-09-30\`.
+- **Arranque:**
+  - antes de mostrar la primera pantalla se hacían ~10 consultas en fila (perfil, hotel, turno, servicio DNI y 6 de notificaciones);
+  - ahora el perfil y el hotel van en una sola consulta, y el turno, el servicio DNI y las notificaciones se cargan en segundo plano;
+  - medido: Habitaciones visible en ~1 s desde que se abre la app.
+- **Consultas a la vez (antes en fila):**
+  - Dashboard: de 2.4 s a 0.58 s;
+  - Facturación: de 1.6 s a 0.28 s;
+  - Restaurante: de 1.5 s a 0.3–0.9 s (y ahora trae solo los pedidos vivos);
+  - Huéspedes, Tiendita, Config. habitaciones y las notificaciones de la campana.
+  - En celular, donde cada consulta tarda más, la diferencia es mayor (antes se sumaban 5–7 s).
+- **Volver a una sección ya visitada es instantáneo (~5 ms):**
+  - se muestra su última vista y se actualiza sola en segundo plano (`navegarA` + `skeleton()`);
+  - esa copia vive solo en memoria y se borra al cerrar sesión o al entrar otro usuario.
+- **Caché de la app (`sw.js`):**
+  - antes esperaba internet en cada apertura (volvía a descargar app.js, ~800 KB);
+  - ahora abre con la copia guardada y la actualiza en segundo plano;
+  - una versión nueva se instala completa y recarga la página. Versión `hospedaya-v11`.
+- **Descargas del arranque:**
+  - se quitó la librería "lucide" (no se usaba y bloqueaba la carga);
+  - QR y gráficos cargan sin bloquear (`defer`);
+  - el generador de PDF (jsPDF) se descarga solo al pedir un PDF.
+- **Imagen del inicio de sesión:** `banner.png` (1.9 MB) pasó a `banner.jpg` (140 KB), con la misma calidad visible. `banner.png` ya no se usa (queda la copia en el respaldo).
+
+---
+
+## 29/09/2026 — Documentación del proyecto
+- Nuevo `CLAUDE.md`: cómo trabajamos, qué archivo hace qué, en qué nos quedamos, pendientes y datos útiles (para continuar en otra conversación sin volver a analizar todo).
+- `CAMBIOS.md` reorganizado por fecha y por parte revisada.
+- Nuevo `_config.yml`: GitHub Pages no publica en la web `CLAUDE.md`, `CAMBIOS.md`, `README.md`, `sql/` ni `.claude/`.
+
+---
+
+## 28/09/2026 — Revisión completa (dueño, recepción, limpieza, restaurante, cocina y SuperAdmin)
+
+### Parte 1 — Correcciones generales (dueño)
+- **Escrituras sin revisar errores (49 lugares):** cobros, check-in/out, ventas, restaurante, etc. decían "guardado" aunque la base de datos rechazara el dato. Ahora usan `chk()` (supabaseClient.js) y muestran el error real.
 - **Cierre de caja ciego:** vuelve a calcularse en el servidor (`fn_cerrar_turno`), como en la versión del 23/09.
-- **Caja:** "Saldo en caja" sumaba Yape/Plin como efectivo. Ahora muestra el *efectivo esperado* (fondo + efectivo − egresos en efectivo) y solo el administrador lo ve antes del cierre.
+- **Caja:** "Saldo en caja" sumaba Yape/Plin como efectivo. Ahora muestra el *efectivo esperado* (fondo + efectivo − egresos en efectivo) y solo el dueño lo ve antes del cierre.
 - **Historial de arqueos e impresión de arqueo:** fallaban (relación inexistente turnos_caja → perfiles_usuarios). Corregido.
 - **Reportes y Facturación:** usaban la columna `estado` (no existe) en vez de `estado_sunat`.
 - **Configuración global (SuperAdmin):** pedía la columna inexistente `fl_empresa_id`.
 - **Cuota SUNAT:** `.catch()` sobre `db.rpc()` rompía la pantalla; la cuota ahora se verifica *antes* de emitir.
-- **Reservas:** se puede reservar a futuro cualquier habitación (se valida cruce de fechas), con fecha de salida y noches; no bloquea la habitación hasta el día de llegada; el adelanto exige turno abierto; estado "Vencida" para reservas pasadas; cancelar pide confirmación y no libera habitaciones ocupadas; editar fechas valida cruces; confirmar llegada valida que la habitación esté libre y recalcula la salida.
-- **Rack:** una habitación reservada muestra "Confirmar llegada / Cancelar" (antes mostraba check-out); capacidad visible en tarjetas; el check-in directo no permite pisar una reserva.
-- **Fechas en hora de Perú:** "hoy", menú del día, calendario, reportes y fecha de comprobantes usaban UTC (después de las 7 p. m. era "mañana").
-- **Tiendita:** no deja vender/cargar más que el stock; stock inicial entra al kardex sin duplicarse; categorías sin distinguir mayúsculas; aviso si el precio es menor que el costo.
-- **Indicadores falsos eliminados:** porcentajes fijos (↑12 %, ↑8 %, etc.) en Reportes, Tiendita y Personal reemplazados por datos reales.
-- **Exportar:** Huéspedes, Reservas y Reportes descargan Excel real (.xlsx); Huéspedes exporta solo lo filtrado.
-- **Varios:** navegación rápida entre módulos, total del pedido en restaurante, tiempos de cocina legibles, correos inventados en Personal, estado real de conexión SUNAT, textos de Suscripción según plan, barra inferior en celular.
-
-- **Roles:** tabla única `PERMISOS_ROL` (app.js) usada por el menú, el menú "Más" del celular y un candado en `renderModulo`. Recepción ya no ve Restaurante y ningún rol puede abrir secciones ajenas (antes recepción podía abrir Reportes, Personal, Config. SUNAT, etc. por el menú "Más" o notificaciones).
-
-- **Inicio por rol:** cada rol entra a su pantalla (limpieza → Estado de Habitaciones, cocina → Cocina, restaurante → Restaurante); ya no sale "Sin acceso" al iniciar sesión. Limpieza, cocina y restaurante ya no ven el Dashboard (mostraba caja e ingresos), ni el buscador de huéspedes, ni la campana. Marcar "Limpia" ya no abre el Rack.
-- **Imprimir arqueo / reportes / comprobante de restaurante:** fallaban con "Cannot read properties of null (reading 'document')" cuando el navegador bloqueaba la ventana emergente. Ahora, si se bloquea, se muestran en un visor dentro de la página (`abrirVentanaImpresion`).
-
-- **Supabase (aplicado, ver `sql/01-seguridad-roles-2026-09-28.sql`; respaldo en `sql/00-...`):** se eliminó la política vieja `cfg_sunat_hotel` que dejaba a cualquier empleado leer la clave SOL y el token; `fn_emitir_comprobante` admite el rol restaurante; trigger que impide a no-admin cambiar número/piso/tipo/activo de una habitación.
-- **Comprobantes de check-in, check-out y restaurante:** ahora se numeran en el servidor con `fn_emitir_comprobante` (antes el navegador leía la configuración SUNAT y sumaba el correlativo, con riesgo de números repetidos). No se envían a SUNAT: quedan "Pendiente de envío".
+- **Reservas:**
+  - se puede reservar a futuro cualquier habitación (se valida el cruce de fechas), con fecha de salida y noches;
+  - no bloquea la habitación hasta el día de llegada;
+  - el adelanto exige turno abierto;
+  - estado "Vencida" para reservas pasadas;
+  - cancelar pide confirmación y no libera habitaciones ocupadas;
+  - editar fechas valida cruces;
+  - confirmar llegada valida que la habitación esté libre y recalcula la salida.
+- **Habitaciones:** una habitación reservada muestra "Confirmar llegada / Cancelar" (antes mostraba check-out); capacidad visible en las tarjetas; el check-in directo no permite pisar una reserva.
+- **Fechas en hora de Perú:** "hoy", menú del día, calendario, reportes y fecha de comprobantes usaban la hora UTC (después de las 7 p. m. ya era "mañana").
+- **Tiendita:**
+  - no deja vender ni cargar más que el stock;
+  - el stock inicial entra al kardex sin duplicarse;
+  - las categorías no distinguen mayúsculas;
+  - avisa si el precio es menor que el costo.
+- **Indicadores falsos eliminados:** porcentajes fijos (↑12 %, ↑8 %…) en Reportes, Tiendita y Personal reemplazados por datos reales.
+- **Exportar:** Huéspedes, Reservas y Reportes descargan un Excel real (.xlsx); Huéspedes exporta solo lo filtrado.
+- **Roles:** una sola tabla `PERMISOS_ROL` (app.js) para el menú, el "Más" del celular y un candado en `renderModulo`. Recepción ya no ve Restaurante y ningún rol puede abrir secciones ajenas.
+- **Inicio por rol:**
+  - cada rol entra a su pantalla y ya no sale "Sin acceso" al iniciar sesión;
+  - limpieza, cocina y restaurante ya no ven el Dashboard, el buscador ni la campana.
+- **Imprimir** (arqueo, reportes, comprobante del restaurante): si el navegador bloquea la ventana emergente, se muestra un visor dentro de la página (`abrirVentanaImpresion`).
+- **Comprobantes** de check-in, check-out y restaurante: se numeran en el servidor (`fn_emitir_comprobante`), sin números repetidos. No se envían a SUNAT: quedan "Pendiente de envío".
 - **Celular:** el botón "Más" solo aparece si hay más secciones de las que caben.
-- **Cocina:** los pedidos nuevos entran en la columna "Nuevas" (antes iban directo a "Preparando" y el botón "Empezar a preparar" nunca aparecía); las tarjetas de arriba llevan a su columna; "Ver reporte de ventas" ya no es un botón vacío ("Próximamente"): solo lo ve quien tiene Reportes y abre Reportes; tiempos legibles también en celular.
-- **Restaurante (rol):** ahora tiene su propia Caja / Turno (antes no podía cobrar: se le pedía abrir caja pero no tenía acceso). Supabase aplicado en `sql/02-restaurante-caja-2026-09-28.sql`: turno y cobros propios, cierre ciego, cargar a habitación (solo ve habitaciones ocupadas, sin datos personales del huésped), ver sus comprobantes, y política DELETE en `items_venta_directa` (antes "Actualizar comanda" duplicaba productos, para cualquier rol).
-- **Restaurante (pantalla):** "Nueva reserva" → "Configurar mesas"; carta fija con categorías Entradas y Platos de fondo (`sql/03-carta-categorias-2026-09-28.sql`) y botón para editar precio/nombre; al reabrir una mesa se unen productos repetidos; "Cancelar comanda" ahora también cancela pedidos en estado "listo" (antes decía cancelada pero no cambiaba); validación de RUC (11 dígitos) y DNI en boletas desde S/ 700 antes de cobrar (también en check-in/check-out); "Cargar a habitación" ya no muestra "undefined".
-- **Revisión total del panel del dueño:**
-  - "Rack de Habitaciones" → "Habitaciones"; la configuración pasa a "Config. habitaciones".
-  - Paginación real en todas las tablas (antes los botones ‹ 1 › y "10 por página" eran decorativos). Se reinicia al buscar/filtrar.
-  - "Ver más" de una habitación: se abre al instante y carga en ~0.5 s (antes 1.5–1.7 s sin respuesta visible); la penalidad/hora extra ahora se ve como línea.
-  - Botones "⋮" conectados: movimientos de caja (detalle), productos (editar, reponer, kardex, desactivar), empleados (restablecer contraseña, desactivar/reactivar), comprobantes (detalle, imprimir, PDF, WhatsApp, anular con nota de crédito — la función existía pero ningún botón la usaba). Facturación en celular llamaba a una función inexistente.
-  - Filtros que eran solo dibujos, ahora reales: Huéspedes (celular), Config. habitaciones (tipo y estado), Personal (rol y estado), Facturación (fecha y estado), Tiendita celular (ordenar y stock), Reportes ("Ingresos/Egresos/Neto" y "Por monto/cantidad").
-  - Huéspedes: filtro "Alojados ahora" nunca funcionó (no se calculaba) y la columna estado decía "Registrado" para todos; "Esta semana" buscaba fechas futuras.
-  - Reservas: "Este mes" excluía los días anteriores a hoy; las opciones de estado no coincidían con los estados mostrados.
-  - Dashboard: "Llegadas de hoy" marcaba "Pendiente" a quien ya había salido (ahora "Salió").
-  - Calendario: "Compartir calendario" solo llevaba a Reservas; ahora envía por WhatsApp las llegadas de los próximos 7 días. Fechas sin "De" en mayúscula.
-  - Tiendita en celular: la lista de productos estaba escondida tras un aviso ("Mantén tu inventario…"); ahora dice "Ver productos (N)" y las categorías abren la lista filtrada.
-- **Personal:** "Exportar" descarga Excel del personal y "Ver guía de permisos" muestra qué ve cada rol (antes decían "Próximamente").
+- **Cocina:**
+  - los pedidos nuevos entran en "Nuevas";
+  - las tarjetas de arriba llevan a su columna;
+  - "Ver reporte de ventas" ya no es un botón vacío.
+- **Restaurante:**
+  - caja propia;
+  - "Nueva reserva" pasa a "Configurar mesas";
+  - carta con categorías y edición;
+  - al reabrir una mesa se unen los productos repetidos;
+  - "Cancelar comanda" también cancela los pedidos "listo";
+  - valida RUC y DNI (boletas desde S/ 700);
+  - "Cargar a habitación" ya no muestra "undefined".
+- **Panel del dueño:**
+  - "Rack de Habitaciones" pasa a "Habitaciones" y la configuración a "Config. habitaciones";
+  - paginación real en todas las tablas;
+  - "Ver más" abre en ~0.5 s;
+  - botones "⋮" conectados (caja, tiendita, personal, facturación, incluido anular con nota de crédito);
+  - filtros que eran solo dibujos ahora funcionan (Huéspedes celular, Config. habitaciones, Personal, Facturación, Tiendita celular, Reportes);
+  - Huéspedes "Alojados ahora" y "Esta semana" corregidos;
+  - Reservas "Este mes" y estados corregidos;
+  - el Dashboard muestra "Salió";
+  - el Calendario comparte las llegadas por WhatsApp;
+  - la lista de la Tiendita en celular ya se puede encontrar;
+  - Personal: Exportar y "Guía de permisos".
+- **SQL aplicados:** `01-seguridad-roles` (la clave SOL ya no llega a los empleados; restaurante puede emitir; solo el dueño cambia la estructura de las habitaciones), `02-restaurante-caja`, `03-carta-categorias`. Respaldo en `00-respaldo-politicas`.
 
-- **Revisión total del rol Recepción (PC, celular y tablet):**
-  - Habitaciones: con los "···" de una habitación **ocupada** se podía marcar "Libre" sin check-out (el huésped quedaba "adentro" y la habitación se podía volver a vender). Ahora solo se libera con check-out, también bloqueado en el servidor de la app (`setEstadoHab`, `iniciarMantenimiento`).
-  - Check-out: si ya había boleta del check-in, permitía emitir otra por el total (doble comprobante). Ahora muestra la boleta ya emitida y solo ofrece comprobante por lo pendiente (consumos/penalidades). Cobrar saldo exige turno abierto.
-  - Check-in: sin turno quedaba la ventana "Cargando…"; ahora explica y ofrece "Ir a Caja" o "Marcar como libre". DNI debe tener 8 dígitos (CE/pasaporte 6–12). Por horas cobraba un solo bloque aunque se eligieran 6 h.
-  - Reservas: el botón "Check-in" registraba la llegada con un solo clic (incluso reservas vencidas); ahora muestra resumen y pide confirmar. No se pueden crear reservas con fecha pasada. Columnas Entrada/Salida/Adelanto ordenan. Buscar por fecha ("01/10", "1 oct"). "Ver ficha del huésped" ahora sí abre la ficha. Entrada sugerida: mañana si ya pasaron las 2 p. m.
-  - Caja: se podía registrar un egreso en efectivo mayor al efectivo del cajón (probado: S/ 500 con S/ 100). "Reporte de caja" mostraba "Saldo en caja" a recepción (rompía el cierre ciego) y sumaba Yape como efectivo; ahora muestra el efectivo esperado correcto y solo al administrador.
-  - Calendario: al tocar un día se abría el día anterior (zona horaria). Los filtros por habitación no filtraban; ahora filtran en mes/semana/día y aparecen todas las habitaciones. Se quitó el texto "Filtrar" que no hacía nada. Carga reservas hasta 12 meses adelante.
-  - Huéspedes: se podía guardar un DNI de 2 dígitos al editar/registrar. En celular, Huéspedes no aparecía en ningún menú (ahora está en "Más", también para el dueño). Nombre del Excel sin espacios.
-  - Tiendita: crear/editar productos, cambiar precios y desactivar = solo el dueño (recepción: vender, reponer stock, ver kardex). La reposición tenía un campo "Nuevo precio" que permitía cambiar precios.
-  - Facturación: "Configuración SUNAT" llevaba a una sección inexistente (`config-sunat`) y aparecía a recepción; ahora solo el dueño lo ve. Se oculta el estado del facturador a empleados (no pueden leer la configuración). Emitir comprobante manual: boleta desde S/ 700 exige DNI y nombre; validación real del RUC. Se quitó una función duplicada.
-  - Buscador de arriba y notificaciones: abren directamente la habitación/estadía (antes solo llevaban a la lista). La notificación de suscripción ya no aparece a empleados. Búsqueda con comas/paréntesis ya no falla.
-  - "¿Necesitas ayuda? Contáctanos" (barra lateral) no hacía nada: ahora abre WhatsApp de soporte con hotel y usuario.
-  - Exportar: nombre del archivo con fecha de Perú (salía el día siguiente después de las 7 p. m.).
+### Parte 2 — Rol Recepción (PC, celular y tablet)
+- **Habitaciones:** con los "···" de una habitación **ocupada** se podía marcar "Libre" sin check-out. Ahora solo se libera con check-out.
+- **Check-out:** si ya había boleta del check-in, dejaba emitir otra por el total (doble comprobante). Ahora muestra la boleta ya emitida y solo ofrece comprobante por lo pendiente. Cobrar el saldo exige turno abierto.
+- **Check-in:**
+  - sin turno se quedaba en "Cargando…"; ahora explica qué falta y ofrece "Ir a Caja" o "Marcar como libre";
+  - el DNI debe tener 8 dígitos (CE y pasaporte, de 6 a 12);
+  - la tarifa por horas ahora cobra todos los bloques.
+- **Reservas:**
+  - el botón "Check-in" registraba la llegada con un solo clic (incluso las vencidas); ahora pide confirmar;
+  - no se pueden crear reservas con fecha pasada;
+  - las columnas se pueden ordenar;
+  - se puede buscar por fecha ("01/10", "1 oct");
+  - "Ver ficha" ya funciona.
+  - Incidente: al probar, la reserva vencida real de JOSE DAVID PEREZ OLIVOS pasó a "alojado"; se revirtió de inmediato.
+- **Caja:**
+  - se podía registrar un gasto en efectivo mayor al que había en caja (S/ 500 con S/ 100); ahora se bloquea;
+  - el "Reporte de caja" le mostraba a recepción el saldo esperado (rompía el cierre ciego); ahora solo lo ve el dueño.
+- **Calendario:** al tocar un día se abría el día anterior; los filtros por habitación no filtraban; se quitó un "Filtrar" que no hacía nada; ahora carga 12 meses adelante.
+- **Huéspedes:** se podía guardar un DNI de 2 dígitos; en celular no aparecía en ningún menú (ahora está en "Más").
+- **Tiendita:** crear o editar productos y cambiar precios queda solo para el dueño; la reposición tenía un campo de precio que ya no ve recepción. SQL `04-productos-precios-solo-admin`.
+- **Facturación:**
+  - "Configuración SUNAT" llevaba a una sección inexistente; ahora solo el dueño lo ve;
+  - boleta manual desde S/ 700 exige DNI;
+  - validación real del RUC.
+- **Buscador y notificaciones:** abren directamente la habitación.
+- **"¿Necesitas ayuda?":** ahora abre el WhatsApp de soporte.
+- **Exportar:** el nombre del archivo usa la fecha de Perú.
 
-- **Revisión del rol Limpieza + seguridad de la base de datos:**
-  - La pantalla "Estado de Habitaciones" no se actualizaba: si recepción hacía un check-out, limpieza no lo veía hasta recargar. Ahora se actualiza sola cada 30 s (y al volver a la app), tiene botón "Actualizar", pone primero las habitaciones por limpiar y muestra el contador ("1 habitación por limpiar" / "No hay habitaciones por limpiar").
-  - Supabase (`sql/05-permisos-escritura-por-rol-2026-09-28.sql`): `carta_restaurante`, `menu_dia` y `config_restaurante` podían ser modificados o borrados por CUALQUIER empleado (incluida limpieza); ahora solo dueño y restaurante. `mantenimientos`: crear/editar dueño y recepción, borrar solo el dueño. Nuevo trigger: una habitación con huésped alojado no puede pasar a libre/limpieza/mantenimiento/reservada sin check-out (antes solo lo controlaba la app).
-  - Verificado con la cuenta de limpieza: no lee huéspedes, estadías, caja, comprobantes ni productos; no puede cambiarse el rol, ni liberar una habitación ocupada, ni tocar carta/menú/mesas/mantenimientos; sí puede marcar "Limpia" (probado con la 105 y PRUEBA-201). Entrar a otras secciones → "Sin acceso".
-  - Mensaje de "¿Necesitas ayuda?" sin espacio sobrante en el nombre del hotel.
+### Parte 3 — Rol Limpieza + seguridad de la base de datos
+- **Pantalla:** se actualiza sola cada 30 s, tiene botón "Actualizar", pone primero las habitaciones por limpiar y muestra un contador.
+- **SQL `05-permisos-escritura-por-rol`:**
+  - la carta, el menú y las mesas podían ser borrados por cualquier empleado; ahora solo el dueño y restaurante;
+  - mantenimientos: los registran el dueño y recepción, y solo el dueño los borra;
+  - una habitación con huésped no se libera sin check-out, también en la base de datos.
+- **Verificado:** limpieza no lee datos sensibles, no puede cambiarse el rol y solo puede marcar "Limpia".
 
-- **Revisión del rol Restaurante (PC y celular):**
-  - En celular no había forma de llegar a Carta fija, Menú del día, Comprobantes, Configurar mesas ni al buscador de mesas. Ahora están debajo de las mesas, y el buscador arriba. Al borrar la búsqueda, las mesas volvían con diseño de PC; corregido.
-  - Filtro "Ocupadas (2)" no mostraba ninguna mesa (excluía las que estaban "Listo"/"Preparando"); ahora coincide con el contador.
-  - Cobro con boleta aceptaba un DNI inválido ("12"): ahora valida DNI 8 dígitos / CE / pasaporte. Boleta sin nombre queda como "Cliente varios". La boleta de prueba B001-00000007 se corrigió en la BD (sin DNI, "Cliente varios"; seguía pendiente de envío).
-  - Configurar mesas: "0" o vacío guardaba 12 mesas; y dejaba bajar a menos mesas que una con pedido abierto (el pedido desaparecía sin cobrarse). Ambos bloqueados.
-  - "Actualizar comanda" reiniciaba la hora del pedido (cocina perdía el tiempo de espera real); ahora se conserva.
-  - Pestañas de categorías con el nombre del formulario ("Platos de fondo").
-  - Probado: pedido Mesa 2 enviado a cocina (queda abierto para probar Cocina), actualizar sin duplicar, +/−, cancelar comanda (Mesa 3), cobro con boleta (Mesa 4 → B001-00000007), cargo a habitación (Mesa 6 → Hab. 102, S/ 54.50, llegó a consumos), carta (agregar/editar/eliminar con confirmación), menú del día (agregar), comprobantes y sus filtros, caja propia (efectivo esperado oculto).
-  - Seguridad verificada: de estadías solo ve la habitación ocupada y sin datos del huésped; solo su turno de caja; solo sus comprobantes; no lee huéspedes ni configuración SUNAT; no puede cambiar habitaciones, tarifas ni su rol.
-  - Dato antiguo: la factura F001-00000002 (20/09) tiene RUC de 9 dígitos "202584511" (de antes de las validaciones); SUNAT la rechazaría.
+### Parte 4 — Rol Restaurante (PC y celular)
+- **Celular:** no había forma de llegar a Carta, Menú del día, Comprobantes, Configurar mesas ni al buscador. Ya están.
+- **Filtro "Ocupadas":** no mostraba ninguna mesa; corregido.
+- **Boleta:** aceptaba el DNI "12"; ahora lo valida. La boleta de prueba B001-00000007 se corrigió en la base de datos. Una boleta sin nombre queda como "Cliente varios".
+- **Configurar mesas:** "0" guardaba 12 mesas, y se podía bajar a menos mesas que una con pedido abierto; los dos casos quedan bloqueados.
+- **"Actualizar comanda":** ya no reinicia la hora del pedido.
+- **Probado:**
+  - pedidos, actualizar, cancelar y cobrar con boleta;
+  - cargo a habitación (Mesa 6 → Hab. 102, S/ 54.50);
+  - carta (agregar, editar, eliminar) y menú del día;
+  - comprobantes y caja.
+- **Dato antiguo:** la factura F001-00000002 (20/09) tiene un RUC de 9 dígitos.
 
-- **Revisión del rol Cocina (PC, tablet y celular):**
-  - Cocina cargaba las 100 comandas MÁS ANTIGUAS del hotel y luego filtraba las activas: al pasar de 100 pedidos en el historial, los nuevos ya no habrían aparecido en cocina. Ahora la consulta trae solo las comandas vivas (nueva, preparando, listo).
-  - Si el mozo cancelaba/cobraba un pedido mientras cocina lo tenía en pantalla, al tocar "Empezar"/"Listo" igual decía "En preparación". Ahora avisa "El pedido cambió" y recarga; doble clic ya no da error.
-  - Supabase (`sql/06-cocina-solo-estado-comanda-2026-09-28.sql`): cocina podía cambiar el total, la forma de pago, la mesa o marcar como cobrado un pedido directamente en la base de datos. Ahora solo puede pasar el estado Nueva → Preparando → Listo. Probado: total 0, "cobrada", cambiar mesa y retroceder → bloqueados; flujo normal → funciona.
-  - Probado: Mesa 2 Nueva → Preparando → Listo (guardado en BD, conserva la hora real del pedido), auto-actualización (un pedido nuevo apareció solo), tarjetas que llevan a su columna (PC y celular), botón Actualizar, secciones ajenas → "Sin acceso". Seguridad: no lee huéspedes, estadías, caja, comprobantes ni configuración SUNAT; no puede crear movimientos de caja.
-  - Pedido de prueba Mesa 5 (creado para probar) quedó cancelado. La Mesa 2 quedó en "Listo para servir" (S/ 37) para que el restaurante la cobre.
+### Parte 5 — Rol Cocina (PC, tablet y celular)
+- **Pedidos:** cocina cargaba las 100 comandas más antiguas; pasado ese número, los pedidos nuevos no aparecerían. Ahora trae solo las comandas vivas.
+- **Pedido cambiado:** si el mozo cancela o cobra mientras cocina lo tiene en pantalla, avisa "El pedido cambió"; el doble clic ya no da error.
+- **SQL `06-cocina-solo-estado-comanda`:** cocina podía cambiar el total o la forma de pago, o marcar como cobrado; ahora solo mueve Nueva → Preparando → Listo.
+- **Probado:** el flujo completo, la actualización automática y las tarjetas. El pedido de prueba de la Mesa 5 quedó cancelado.
 
-- **Revisión del SuperAdmin (PC y celular):**
-  - "Registrar hotel" se quitó del Dashboard SaaS (queda solo en Hoteles).
-  - Suscripciones: nuevo botón "Renovar suscripción" (elige hotel → renovar/plan/prórroga). Tras renovar vuelve a la sección desde donde se hizo.
-  - Registrar hotel: valida RUC (11 dígitos, 10/15/17/20), monto > 0 y contraseña ≥ 6 (los 3 hoteles actuales tienen RUC mal escritos: "12616469", "3246546464+", "2035879641").
-  - Gestionar hotel: "Actualizar límite" con 0/vacío guardaba 150 sin avisar; ahora avisa. Secciones numeradas 1–6 (saltaba el 5).
-  - Botón "Probar" de DNI/RUC: antes decía "Conexión OK" aunque el token fuera inválido; ahora distingue token rechazado (401/403), proveedor caído y OK.
-  - Supabase:
-    - `sql/07`: `fn_consultar_documento` valida DNI (8) / RUC (11) antes de armar la URL del proveedor (antes se podía inyectar texto), el "ping" que la app hace en cada inicio de sesión ya no gasta una consulta real al proveedor, y los errores del proveedor se informan.
-    - `sql/08`: `fn_credenciales_facturalibre` la podía ejecutar cualquier usuario y devolvía el token de FacturaLibre (del hotel o de distribuidor) de CUALQUIER hotel ("luna nueva" ya tiene credenciales). Ahora solo el servidor la usa.
-    - `sql/09`: la cuota de comprobantes contaba desde el 31/08 14:00 y mostraba "mes 2026-08" (doble conversión de zona horaria); ahora cuenta el mes de Perú. Además, solo el propio hotel o el SuperAdmin pueden consultar su cuota.
-  - Verificado (sin cambios necesarios): el dueño NO puede regalarse plan/vencimiento/cuota (trigger `tg_hoteles_guard`); renovar, prórroga, ampliar cuota, registrar hotel, resetear contraseña y ver correos exigen SuperAdmin; `configuracion_global` solo la lee el SuperAdmin.
-  - Probado: renovar 1 mes a "luna nueva" (vencimiento 19/10 → 19/11, pago registrado), prórroga +3 días, +10 CPE; luego todo se dejó como estaba (vencimiento 19/10, sin prórroga ni créditos, pago de prueba eliminado).
-  - **FacturaLibre:** el panel tiene dónde guardar el token de distribuidor, pero la app todavía envía a SUNAT desde el navegador con el token propio de cada hotel. En la base de datos YA existe `fn_emitir_a_facturalibre` (envío desde el servidor, usa el token del hotel o el de distribuidor sin exponerlo). Falta: que la app la use en lugar de `enviarASunat()` y permitirla también al rol restaurante (hoy solo admin/recepción).
+### Parte 6 — SuperAdmin (PC y celular)
+- **Dashboard y Suscripciones:** "Registrar hotel" se quitó del Dashboard SaaS; Suscripciones tiene el botón "Renovar suscripción".
+- **Registrar hotel:** valida RUC, monto y contraseña.
+- **Gestionar hotel:** el límite "0" ya no guarda 150 sin avisar; secciones numeradas 1–6.
+- **Botón "Probar" (DNI/RUC):** distingue un token rechazado.
+- **SQL `07-consulta-documento-segura`:**
+  - valida DNI/RUC (antes se podía inyectar texto en la dirección del proveedor);
+  - el "ping" de cada inicio de sesión ya no gasta consultas;
+  - informa los errores del proveedor.
+- **SQL `08-suscripcion-y-token-blindados`:** cualquier usuario podía pedir el token de FacturaLibre de cualquier hotel; ahora solo el servidor.
+  - Además, se revisó si el dueño podía regalarse la suscripción: **no podía** (`tg_hoteles_guard`). Un trigger que se agregó de más se eliminó.
+- **SQL `09-cuota-cpe-mes-peru`:** la cuota contaba mal el mes (mostraba 2026-08); ahora cada hotel solo ve la suya.
+- **Probado:** renovar, prórroga y +10 CPE en "luna nueva". Luego se dejó todo como estaba y se borró el pago de prueba.
+- **Hallazgo:** en la base de datos ya existe `fn_emitir_a_facturalibre` (envío a SUNAT desde el servidor); falta conectarla a la app.
+
+---
 
 ## Pendiente
-- En celular no hay acceso a "¿Necesitas ayuda?" para ningún rol (solo está en la barra lateral de PC).
-- ~~Tiendita: reforzar en Supabase el bloqueo de precios~~ → HECHO: `sql/04-productos-precios-solo-admin-2026-09-28.sql` (trigger `trg_productos_solo_admin_precios`). Probado con recepción: cambiar precio y crear producto → bloqueado; reponer stock y costo → funciona.
-- **OBLIGATORIO ANTES DE ENTREGAR:** con el facturador conectado, los comprobantes que emite recepción no se envían solos a SUNAT (recepción no puede leer la configuración por seguridad): se resuelve con el envío desde el servidor (Edge Function).
-- Probar una boleta en check-out con el nuevo flujo por servidor (check-in ya probado: B001-00000006).
-- La lista de `perfiles_usuarios` (nombres y roles del personal) sigue visible para todos los empleados del hotel; se usa para mostrar nombres de cajeros. Bajo riesgo.
-- Emitir a SUNAT desde el servidor (Edge Function) para que la clave SOL y el token no lleguen al navegador.
-- Permitir al dueño ver correos de su personal (`fn_get_email_usuario`).
-- Recuperar en `sql/` el resto de funciones de Supabase (hoy solo están los cambios de esta revisión).
+Lista actualizada y en orden de prioridad: ver `CLAUDE.md` → "Pendiente".
